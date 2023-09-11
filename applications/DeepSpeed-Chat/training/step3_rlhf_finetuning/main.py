@@ -49,6 +49,11 @@ def parse_args():
     global writer
     parser = argparse.ArgumentParser(
         description="(Step 3) RLHF training arguments")
+    parser.add_argument("--experiment_name", "-e", type=str, required=True)
+    parser.add_argument("--trial_name", "-f", type=str, required=True)
+    parser.add_argument("--index", "-i", type=int, default=-1)
+    parser.add_argument("--count", "-n", type=int, default=-1)
+    parser.add_argument("--slurm_launch", action="store_true")
 
     parser.add_argument(
         '--data_path',
@@ -443,8 +448,26 @@ def create_datasets(args, tokenizer, train_phase=3):
 def main():
     args = parse_args()
 
-    if args.local_rank == -1:
-        device = torch.device(get_accelerator().device_name())
+    if args.slurm_launch:
+        import sys
+        sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+        print(sys.path)
+        from gpu_utils import isolate_cuda_device, setup_ddp
+        rank = args.index
+        world_size = args.count
+        assert rank != -1 and world_size != -1
+        model_name = "default"
+        local_rank = isolate_cuda_device(model_name, rank, world_size,
+                                         args.experiment_name, args.trial_name)
+        setup_ddp(args.experiment_name, args.trial_name, model_name, rank, world_size)
+
+        os.environ['LOCAL_RANK'] = str(local_rank)
+        args.local_rank = local_rank
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device("cuda", args.local_rank)
+        deepspeed.init_distributed(auto_mpi_discovery=False)
+    elif args.local_rank == -1:
+        device = torch.device("cuda")
     else:
         get_accelerator().set_device(args.local_rank)
         device = torch.device(get_accelerator().device_name(), args.local_rank)

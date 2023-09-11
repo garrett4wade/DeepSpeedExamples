@@ -73,31 +73,31 @@ def create_critic_model(model_name_or_path,
         tokenizer,
         num_padding_at_beginning=num_padding_at_beginning)
 
-    if rlhf_training:
-        # load critic model from checkpoint
+    # if rlhf_training:
+    #     # load critic model from checkpoint
 
-        if not os.path.isdir(model_name_or_path):
-            model_name_or_path = snapshot_download(model_name_or_path)
-        model_ckpt_path = os.path.join(model_name_or_path, 'pytorch_model.bin')
-        assert os.path.exists(
-            model_ckpt_path
-        ), f"Cannot find model checkpoint at {model_ckpt_path}"
+    #     if not os.path.isdir(model_name_or_path):
+    #         model_name_or_path = snapshot_download(model_name_or_path)
+    #     model_ckpt_path = os.path.join(model_name_or_path, 'pytorch_model.bin')
+    #     assert os.path.exists(
+    #         model_ckpt_path
+    #     ), f"Cannot find model checkpoint at {model_ckpt_path}"
 
-        start = time.time()
-        model_ckpt_state_dict = torch.load(model_ckpt_path, map_location='cpu')
-        end = time.time()
-        if torch.distributed.get_rank() == 0:
-            print(f"> torch.load took {end - start} seconds")
+    #     start = time.time()
+    #     model_ckpt_state_dict = torch.load(model_ckpt_path, map_location='cpu')
+    #     end = time.time()
+    #     if torch.distributed.get_rank() == 0:
+    #         print(f"> torch.load took {end - start} seconds")
 
-        # load critic model from checkpoint with zero-stage 3 compatibility
-        # this functionality may be moved to DS checkpoint load API in future
-        start = time.time()
-        load_state_dict_into_model(critic_model,
-                                   model_ckpt_state_dict,
-                                   "",
-                                   zero_stage=zero_stage)
-        end = time.time()
-        if torch.distributed.get_rank() == 0:
-            print(f"> Loading model state dict took {end - start} seconds")
+    #     # load critic model from checkpoint with zero-stage 3 compatibility
+    #     # this functionality may be moved to DS checkpoint load API in future
+    #     start = time.time()
+    #     load_state_dict_into_model(critic_model,
+    #                                model_ckpt_state_dict,
+    #                                "",
+    #                                zero_stage=zero_stage)
+    #     end = time.time()
+    #     if torch.distributed.get_rank() == 0:
+    #         print(f"> Loading model state dict took {end - start} seconds")
 
     return critic_model
