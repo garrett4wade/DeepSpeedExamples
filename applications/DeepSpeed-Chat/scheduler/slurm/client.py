@@ -6,8 +6,8 @@ import shutil
 import subprocess
 import time
 
-from utils.scheduler.client import SchedulerClient, TaskException, TaskInfo, TaskState
-from utils.scheduler.slurm.utils import *
+from ..client import SchedulerClient, TaskException, TaskInfo, TaskState
+from .utils import *
 
 logger = logging.getLogger("Slurm scheduler")
 
@@ -99,7 +99,7 @@ class SlurmSchedulerClient(SchedulerClient):
 
         with open(multi_prog_file, "w") as f:
             if "index" in cmd:
-                cmd = cmd.format(index='%t')
+                cmd = cmd.format(index='%t', count=spec.ntasks)
             f.write(f"0-{ntasks-1} {cmd}\n")
 
         if spec.hostfile:
