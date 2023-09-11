@@ -33,6 +33,10 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=
         "Finetune a transformers model on a causal language modeling task")
+    parser.add_argument("--experiment_name", "-e", type=str, required=True)
+    parser.add_argument("--trial_name", "-f", type=str, required=True)
+    parser.add_argument("--slurm_launch", action="store_true")
+
     parser.add_argument('--data_path',
                         nargs='*',
                         default=['Dahoas/rm-static'],
@@ -204,9 +208,28 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.slurm_launch:
+        from utils.gpu_utils import reveal_ddp_identity, setup_ddp, isolate_cuda_device
+        import os
+        rank = int(os.environ['SLURM_PROCID'])
+        world_size = int(os.environ['SLURM_NTASKS'])
+        model_name = "default"
+        local_rank = isolate_cuda_device(model_name, rank, world_size,
+                                         args.experiment_name, args.trial_name)
+        reveal_ddp_identity(args.experiment_name, args.trial_name, model_name,
+                            rank)
+        world_size, rank, _ = setup_ddp(args.experiment_name, args.trial_name,
+                                        "default",
+                                        int(os.environ['SLURM_PROCID']))
+        assert world_size == int(os.environ['SLURM_NTASKS'])
+        assert rank == int(os.environ["SLURM_PROCID"])
 
-    if args.local_rank == -1:
-        device = torch.device(get_accelerator().device_name())
+        args.local_rank = local_rank
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device("cuda", args.local_rank)
+        deepspeed.init_distributed(auto_mpi_discovery=False)
+    elif args.local_rank == -1:
+        device = torch.device("cuda")
     else:
         get_accelerator().set_device(args.local_rank)
         device = torch.device(get_accelerator().device_name(), args.local_rank)
