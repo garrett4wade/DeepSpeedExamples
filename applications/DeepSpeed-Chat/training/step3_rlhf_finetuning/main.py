@@ -16,6 +16,7 @@ for prompt_batch in prompt_train_dataloader:
     actor_loss, critic_loss = trainer.train_rlhf(out)
 
 """
+import sys
 import argparse
 import os
 import random
@@ -23,6 +24,10 @@ import time
 import torch
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.append("/home/fw/workspace/DeepSpeedExamples/applications/DeepSpeed-Chat/")
+print(sys.path)
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -449,9 +454,6 @@ def main():
     args = parse_args()
 
     if args.slurm_launch:
-        import sys
-        sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-        print(sys.path)
         from gpu_utils import isolate_cuda_device, setup_ddp
         rank = args.index
         world_size = args.count

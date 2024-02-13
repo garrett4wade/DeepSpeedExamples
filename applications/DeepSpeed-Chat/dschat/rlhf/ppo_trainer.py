@@ -82,6 +82,12 @@ class DeepSpeedPPOTrainer():
             kwargs = dict(do_sample=False)
         else:
             kwargs = dict()
+        kwargs.update(dict(min_length=10 + prompts.shape[1],
+            top_p=0.9,
+            top_k=2048,
+            temperature=1.2,
+            do_sample=True))
+        print(f"avg_prompt_len={float(mask.float().sum(1).mean()):.2f}")
 
         with torch.no_grad():
             seq = self.actor_model.module.generate(
@@ -204,6 +210,10 @@ class DeepSpeedPPOTrainer():
         attention_mask = inputs['attention_mask']
         seq = inputs['input_ids']
 
+        # clear all NaNs in log probs
+        log_probs = torch.where(log_probs.isnan(), -5.0, log_probs)
+        ref_log_probs = torch.where(ref_log_probs.isnan(), -5.0, ref_log_probs)
+
         start = prompts.size()[-1] - 1
         action_mask = attention_mask[:, 1:]
 
@@ -222,12 +232,30 @@ class DeepSpeedPPOTrainer():
                 old_values, old_rewards, start)
 
         ### process the new outputs
-        batch = {'input_ids': seq, "attention_mask": attention_mask}
+        # batch = {'input_ids': seq, "attention_mask": attention_mask}
+        # assert not seq.isnan().any()
+        # assert not attention_mask.isnan().any()
+        # actor_prob = self.actor_model(**batch, use_cache=False).logits
+        # if actor_prob.isnan().all():
+        batch = {'input_ids': torch.zeros_like(seq), "attention_mask": torch.ones_like(attention_mask)}
         actor_prob = self.actor_model(**batch, use_cache=False).logits
-        actor_log_prob = gather_log_probs(actor_prob[:, :-1, :], seq[:, 1:])
-        actor_loss = self.actor_loss_fn(actor_log_prob[:, start:],
-                                        log_probs[:, start:], advantages,
-                                        action_mask[:, start:])
+        assert not actor_prob.isnan().all()
+        actor_prob = torch.where(actor_prob.isnan(), -100.0, actor_prob)
+        actor_log_prob = torch.nn.functional.log_softmax(actor_prob).max(-1)
+        assert not actor_log_prob.values.isnan().all()
+        actor_loss = -(actor_log_prob.values[:, start:-1] * action_mask[:, start:].float()).sum() / action_mask[:, start:].float().sum()
+        # advantages = torch.where(advantages.isnan(), 0.0, advantages)
+        # returns = torch.where(returns.isnan(), 0.0, returns)
+        # assert not actor_prob.isnan().any()
+        # actor_log_prob = gather_log_probs(actor_prob[:, :-1, :], seq[:, 1:])
+        # print(f"logits is nan? {actor_prob.isnan().any()} is inf? {actor_prob.isinf().any()}")
+        # print(f"actor log prob is nan? {actor_log_prob.isnan().any()} is inf? {actor_log_prob.isinf().any()}")
+        # print(f"adv is nan? {advantages.isnan().any()} is inf? {advantages.isinf().any()}")
+        # print(f"old logprob is nan? {log_probs.isnan().any()} is inf? {log_probs.isinf().any()}")
+        # print(f"avg_seqlen={float(attention_mask.float().sum(1).mean()):.2f}")
+        # actor_loss = self.actor_loss_fn(actor_log_prob[:, start:],
+        #                                 log_probs[:, start:], advantages,
+        #                                 action_mask[:, start:])
         self.actor_model.backward(actor_loss)
 
         if not self.args.align_overflow:
@@ -286,7 +314,10 @@ class DeepSpeedPPOTrainer():
         pg_loss1 = -advantages * ratio
         pg_loss2 = -advantages * torch.clamp(ratio, 1.0 - self.cliprange,
                                              1.0 + self.cliprange)
-        pg_loss = torch.sum(torch.max(pg_loss1, pg_loss2) * mask) / mask.sum()
+        pg_loss = torch.max(pg_loss1, pg_loss2).float()
+        pg_loss = pg_loss / pg_loss.max()  # in case of overflow
+        print(f"maximum actor loss is {(pg_loss * mask).max()}")
+        pg_loss = torch.sum(pg_loss * mask) / mask.sum()
         return pg_loss
 
     def critic_loss_fn(self, values, old_values, returns, mask):
@@ -301,8 +332,11 @@ class DeepSpeedPPOTrainer():
             values_clipped = values_clipped.float()
         vf_loss1 = (values - returns)**2
         vf_loss2 = (values_clipped - returns)**2
+        vf_loss = torch.max(vf_loss1, vf_loss2)
+        vf_loss = vf_loss.float() / vf_loss.max()
+        print(f"maximum critic loss is {(vf_loss * mask).max()}")
         vf_loss = 0.5 * torch.sum(
-            torch.max(vf_loss1, vf_loss2) * mask) / mask.sum()
+            vf_loss * mask) / mask.sum()
         return vf_loss
 
     def get_advantages_and_returns(self, values, rewards, start):

@@ -1,1 +1,1 @@
-python3 applications/DeepSpeed-Chat/slurm_launch.py -e dschat -f debug --mode local
+python3 applications/DeepSpeed-Chat/slurm_launch.py -e dschat -f debug --mode local -t rlhf

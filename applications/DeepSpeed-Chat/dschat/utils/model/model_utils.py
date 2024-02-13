@@ -141,32 +141,32 @@ def create_critic_model(model_name_or_path,
         num_padding_at_beginning=num_padding_at_beginning,
         compute_fp32_loss=compute_fp32_loss)
 
-    if rlhf_training:
-        # load critic model from checkpoint
+    # if rlhf_training:
+    #     # load critic model from checkpoint
 
-        if not os.path.isdir(model_name_or_path):
-            model_name_or_path = snapshot_download(model_name_or_path)
-        model_ckpt_path = os.path.join(model_name_or_path, 'pytorch_model.bin')
-        assert os.path.exists(
-            model_ckpt_path
-        ), f"Cannot find model checkpoint at {model_ckpt_path}"
+    #     if not os.path.isdir(model_name_or_path):
+    #         model_name_or_path = snapshot_download(model_name_or_path)
+    #     model_ckpt_path = os.path.join(model_name_or_path, 'pytorch_model.bin')
+    #     assert os.path.exists(
+    #         model_ckpt_path
+    #     ), f"Cannot find model checkpoint at {model_ckpt_path}"
 
-        start = time.time()
-        model_ckpt_state_dict = torch.load(model_ckpt_path, map_location='cpu')
-        end = time.time()
-        print_rank_0(f">Creating model from_config took {end - start} seconds",
-                     None)
+    #     start = time.time()
+    #     model_ckpt_state_dict = torch.load(model_ckpt_path, map_location='cpu')
+    #     end = time.time()
+    #     print_rank_0(f">Creating model from_config took {end - start} seconds",
+    #                  None)
 
-        # load critic model from checkpoint with zero-stage 3 compatibility
-        # this functionality may be moved to DS checkpoint load API in future
-        start = time.time()
-        load_state_dict_into_model(critic_model,
-                                   model_ckpt_state_dict,
-                                   "",
-                                   zero_stage=zero_stage)
-        end = time.time()
+    #     # load critic model from checkpoint with zero-stage 3 compatibility
+    #     # this functionality may be moved to DS checkpoint load API in future
+    #     start = time.time()
+    #     load_state_dict_into_model(critic_model,
+    #                                model_ckpt_state_dict,
+    #                                "",
+    #                                zero_stage=zero_stage)
+    #     end = time.time()
 
-        print_rank_0(f">Creating model from_config took {end - start} seconds",
-                     None)
+    #     print_rank_0(f">Creating model from_config took {end - start} seconds",
+    #                  None)
 
     return critic_model

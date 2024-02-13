@@ -27,10 +27,11 @@ task_mapping = {
     "rlhf": "step3_rlhf_finetuning",
 }
 
-global_batch_size = 512
+# FIXME: 
+global_batch_size = 64
 n_ppo_mbs = 4
-max_prompt_len = 1024
-max_answer_len = 1024
+max_prompt_len = 256
+max_answer_len = 256
 
 
 def get_path_from_model_size(model_size: int):
@@ -49,7 +50,8 @@ def get_path_from_model_size(model_size: int):
 
 def get_ngpus_and_nodelist_from_model_size(model_size: int):
     if model_size in [7, 13]:
-        return 16, "QH-com[15-19]"
+        # FIXME: 
+        return 8, "QH-com[15-19]"
     elif model_size in [34]:
         return 32, "QH-com[30-34,36-37]"
     elif model_size == 70:
@@ -77,7 +79,7 @@ def main(args):
     n_actor_gpus, nodelist = get_ngpus_and_nodelist_from_model_size(args.actor_size)
     assert global_batch_size % n_actor_gpus == 0
     per_device_batch_size = global_batch_size // n_actor_gpus
-    assert per_device_batch_size // n_ppo_mbs == 0
+    assert per_device_batch_size % n_ppo_mbs == 0
 
     if args.task_type == "sft":
         flags = [
@@ -134,7 +136,7 @@ def main(args):
             f"--max_answer_seq_len {max_answer_len}",
             f"--max_prompt_seq_len {max_prompt_len}",
             "--actor_learning_rate 5e-6",
-            "--critic_learning_rate 5e-4",
+            "--critic_learning_rate 5e-6",
             "--num_train_epochs 1",
             "--lr_scheduler_type cosine",
             "--gradient_accumulation_steps 1",
@@ -146,8 +148,10 @@ def main(args):
             "--actor_zero_stage 3",
             "--critic_zero_stage 3",
             "--actor_gradient_checkpointing",
-            "--disable_actor_dropout",
+            "--critic_gradient_checkpointing",
             f"--output_dir {output_dir}",
+            "--enable_test_mode",
+            "--test_stop_step 20",
         ]
     cmd = " ".join([cmd] + flags)
 
@@ -169,7 +173,7 @@ def main(args):
         gpu=1,
         mem=100 * 1024,
         env_vars=env_vars,
-        container_image="llm/llm-gpu",
+        container_image="llm/llm-dschat",
         container_mounts=cluster_spec.default_mount,
         nodelist=nodelist,
         hostfile=True,
