@@ -17,6 +17,8 @@ parser.add_argument("--task_type", "-t", type=str, choices=["sft", "rw", "rlhf"]
 parser.add_argument("--mode", type=str, default="slurm")
 parser.add_argument("--actor_size", type=int, choices=[7, 13, 34, 70], default=7)
 parser.add_argument("--critic_size", type=int, choices=[7, 13, 34, 70], default=7)
+parser.add_argument("--actor_zero_stage", type=int, default=3)
+parser.add_argument("--critic_zero_stage", type=int, default=3)
 args = parser.parse_args()
 
 USER_NAMESPACE = getpass.getuser()
@@ -27,11 +29,10 @@ task_mapping = {
     "rlhf": "step3_rlhf_finetuning",
 }
 
-# FIXME: 
-global_batch_size = 64
+global_batch_size = 512
 n_ppo_mbs = 4
-max_prompt_len = 256
-max_answer_len = 256
+max_prompt_len = 1024
+max_answer_len = 1024
 
 
 def get_path_from_model_size(model_size: int):
@@ -50,8 +51,7 @@ def get_path_from_model_size(model_size: int):
 
 def get_ngpus_and_nodelist_from_model_size(model_size: int):
     if model_size in [7, 13]:
-        # FIXME: 
-        return 8, "QH-com[15-19]"
+        return 16, "QH-com[17-18]"
     elif model_size in [34]:
         return 32, "QH-com[30-34,36-37]"
     elif model_size == 70:
@@ -63,15 +63,12 @@ def main(args):
 
     logging.basicConfig(format=LOG_FORMAT, datefmt=DATE_FORMAT, level=os.environ.get("LOGLEVEL", "INFO"))
     logger = logging.getLogger("DeepSpeed Slurm Launch")
-    output_dir = (
-        f"{cluster_spec.fileroot}/benchmarking/DeepSpeed-Chat/{args.experiment_name}/{args.trial_name}"
-    )
-    os.makedirs(output_dir, exist_ok=True)
 
     entry_file = os.path.join(os.path.dirname(__file__), "training", task_mapping[args.task_type], "main.py")
     cmd = (
         f"python3 {entry_file} -e {args.experiment_name} -f {args.trial_name}"
-        f" --deepspeed --slurm_launch -i {{index}} -n {{count}}"
+        f" --deepspeed --slurm_launch -i {{jobstep_id}} -g {{n_jobsteps}} -r {{worker_submission_index}} "
+        f"-p {{wprocs_per_jobstep}} -j {{wprocs_in_job}} -o {{wproc_offset}}"
     )
 
     actor_path = get_path_from_model_size(args.actor_size)
@@ -143,13 +140,12 @@ def main(args):
             "--num_warmup_steps 100",
             "--seed 1234",
             "--enable_hybrid_engine",
-            "--inference_tp_size 1",
+            # "--inference_tp_size 2",
             # "--tp_gather_partition_size 2",
-            "--actor_zero_stage 3",
-            "--critic_zero_stage 3",
+            f"--actor_zero_stage {args.actor_zero_stage}",
+            f"--critic_zero_stage {args.critic_zero_stage}",
             "--actor_gradient_checkpointing",
             "--critic_gradient_checkpointing",
-            f"--output_dir {output_dir}",
             "--enable_test_mode",
             "--test_stop_step 20",
         ]
@@ -163,7 +159,7 @@ def main(args):
     # print(os.path.join(os.path.dirname(os.path.dirname(__file__)), "training",
     #                  "step1_supervised_finetuning", "main.py"))
 
-    sched = sched_client.make(mode=args.mode, job_name=f"{args.experiment_name}_{args.trial_name}")
+    sched = sched_client.make(mode=args.mode, expr_name=args.experiment_name, trial_name=args.trial_name)
     sched.submit_array(
         args.task_type,
         cmd,
@@ -181,9 +177,9 @@ def main(args):
 
     try:
         sched.wait()
-    except (KeyboardInterrupt, sched_client.TaskException):
+    except (KeyboardInterrupt, sched_client.JobException, TimeoutError) as e:
         sched.stop_all()
-        raise
+        raise e
 
 
 if __name__ == "__main__":

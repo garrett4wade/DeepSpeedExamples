@@ -111,7 +111,8 @@ class DeepSpeedRLHFEngine():
             self.args.actor_lora_learning_rate)
         optim = AdamOptimizer(optim_params,
                               lr=self.args.actor_learning_rate,
-                              betas=(0.9, 0.95))
+                              betas=(0.9, 0.95),
+                              eps=1e-5)
 
         # LR Scheduler
         lr_scheduler = get_scheduler(

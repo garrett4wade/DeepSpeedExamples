@@ -27,7 +27,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append("/home/fw/workspace/DeepSpeedExamples/applications/DeepSpeed-Chat/")
-print(sys.path)
+# print(sys.path)
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -56,9 +56,42 @@ def parse_args():
         description="(Step 3) RLHF training arguments")
     parser.add_argument("--experiment_name", "-e", type=str, required=True)
     parser.add_argument("--trial_name", "-f", type=str, required=True)
-    parser.add_argument("--index", "-i", type=int, default=-1)
-    parser.add_argument("--count", "-n", type=int, default=-1)
     parser.add_argument("--slurm_launch", action="store_true")
+    parser.add_argument("--jobstep_id",
+                           "-i",
+                           type=int,
+                           required=True,
+                           help="jobstep/task ID in a slurm job.")
+    parser.add_argument("--n_jobsteps",
+                           "-g",
+                           type=int,
+                           required=True,
+                           help="`--ntasks` of `srun`, aka SLURM_NPROCS.")
+    parser.add_argument(
+        "--worker_submission_index",
+        "-r",
+        type=int,
+        required=True,
+        help="Submission index to slurm for this worker. Used for locating job name and logs.")
+    parser.add_argument("--wprocs_per_jobstep",
+                           "-p",
+                           type=int,
+                           required=True,
+                           help="Number of worker processes launched by multiprocessing in this script.")
+    parser.add_argument("--wprocs_in_job",
+                           "-j",
+                           type=int,
+                           required=True,
+                           help="Number of worker processes in this slurm job.")
+    parser.add_argument(
+        "--wproc_offset",
+        "-o",
+        type=int,
+        required=True,
+        help="Offset of worker processes of this slurm job. "
+        "For example, we may allocate 4 type `A` workers with 1 GPU each and 2 with 0.5 GPU each. "
+        "This launches 2 jobs, the former with 4 job steps and the latter with 2 job steps. "
+        "The offset is 0 for the 1st job and 4 for the 2nd job.")
 
     parser.add_argument(
         '--data_path',
@@ -455,14 +488,19 @@ def main():
 
     if args.slurm_launch:
         from gpu_utils import isolate_cuda_device, setup_ddp
-        rank = args.index
-        world_size = args.count
+        rank = args.jobstep_id
+        world_size = args.n_jobsteps
+        assert args.worker_submission_index == 0, args.worker_submission_index
+        assert args.wprocs_per_jobstep == 1, args.wprocs_per_jobstep
+        assert args.wprocs_in_job == world_size, args.wprocs_in_job
+        assert args.wproc_offset == 0, args.wproc_offset
         assert rank != -1 and world_size != -1
         model_name = "default"
         local_rank = isolate_cuda_device(model_name, rank, world_size,
                                          args.experiment_name, args.trial_name)
         setup_ddp(args.experiment_name, args.trial_name, model_name, rank, world_size)
-
+        if os.getenv("CUDA_VISIBLE_DEVICES") is not None and len(os.getenv("CUDA_VISIBLE_DEVICES").split(",")) == 1:
+            local_rank = 0
         os.environ['LOCAL_RANK'] = str(local_rank)
         args.local_rank = local_rank
         torch.cuda.set_device(args.local_rank)

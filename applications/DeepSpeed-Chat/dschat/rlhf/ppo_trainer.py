@@ -239,11 +239,12 @@ class DeepSpeedPPOTrainer():
         # if actor_prob.isnan().all():
         batch = {'input_ids': torch.zeros_like(seq), "attention_mask": torch.ones_like(attention_mask)}
         actor_prob = self.actor_model(**batch, use_cache=False).logits
-        assert not actor_prob.isnan().all()
+        assert not actor_prob.isnan().any()
         actor_prob = torch.where(actor_prob.isnan(), -100.0, actor_prob)
         actor_log_prob = torch.nn.functional.log_softmax(actor_prob).max(-1)
         assert not actor_log_prob.values.isnan().all()
         actor_loss = -(actor_log_prob.values[:, start:-1] * action_mask[:, start:].float()).sum() / action_mask[:, start:].float().sum()
+        actor_loss = actor_loss.float() * 1e-3
         # advantages = torch.where(advantages.isnan(), 0.0, advantages)
         # returns = torch.where(returns.isnan(), 0.0, returns)
         # assert not actor_prob.isnan().any()
@@ -264,9 +265,11 @@ class DeepSpeedPPOTrainer():
         value = self.critic_model.forward_value(**batch,
                                                 return_value_only=True,
                                                 use_cache=False)[:, :-1]
-        critic_loss = self.critic_loss_fn(value[:, start:], old_values[:,
-                                                                       start:],
-                                          returns, action_mask[:, start:])
+        assert not value.isnan().any()
+        critic_loss = ((value - torch.zeros_like(value))**2).mean().float() * 1e-3
+        # critic_loss = self.critic_loss_fn(value[:, start:], old_values[:,
+        #                                                                start:],
+        #                                   returns, action_mask[:, start:])
         self.critic_model.backward(critic_loss)
 
         if self.args.align_overflow:
@@ -333,8 +336,7 @@ class DeepSpeedPPOTrainer():
         vf_loss1 = (values - returns)**2
         vf_loss2 = (values_clipped - returns)**2
         vf_loss = torch.max(vf_loss1, vf_loss2)
-        vf_loss = vf_loss.float() / vf_loss.max()
-        print(f"maximum critic loss is {(vf_loss * mask).max()}")
+        # print(f"maximum critic loss is {(vf_loss * mask).max()}")
         vf_loss = 0.5 * torch.sum(
             vf_loss * mask) / mask.sum()
         return vf_loss
