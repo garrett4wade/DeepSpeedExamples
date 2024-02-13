@@ -1,3 +1,3 @@
-srun --nodelist=frl8a138 --container-image=llm/llm-gpu \
-    --container-mounts=/data:/data,/hddlustre:/hddlustre,/lustre:/lustre \
-    --pty -c40 --mem=200G --gpus=4 --container-mount-home  bash
+srun --container-image=llm/llm-gpu \
+    --container-mounts=/lustre:/lustre \
+    --pty -c99 --mem=900G --gpus=8 --container-mount-home  bash

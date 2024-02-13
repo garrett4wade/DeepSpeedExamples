@@ -211,6 +211,7 @@ def parse_args():
 def main():
     args = parse_args()
     if args.slurm_launch:
+        import os
         import sys
         sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
         print(sys.path)

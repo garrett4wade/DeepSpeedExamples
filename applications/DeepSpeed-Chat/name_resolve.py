@@ -2,7 +2,6 @@
 from typing import Callable, List, Optional
 import dataclasses
 import getpass
-import logging
 import os
 import queue
 import random
@@ -11,18 +10,9 @@ import socket
 import threading
 import time
 import uuid
+import logging
 
-from redis.backoff import ExponentialBackoff
-from redis.retry import Retry
-import redis
-
-import timeutil
-
-
-def read_key(service, name="default"):
-    with open(f"/data/marl/keys/{service}/{name}", "r") as f:
-        return f.read().strip()
-
+from cluster import spec as cluster_spec
 
 logger = logging.getLogger("name-resolve")
 
@@ -53,12 +43,7 @@ class NameRecordRepository:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.reset()
 
-    def add(self,
-            name,
-            value,
-            delete_on_exit=True,
-            keepalive_ttl=None,
-            replace=False):
+    def add(self, name, value, delete_on_exit=True, keepalive_ttl=None, replace=False):
         """Creates a name record in the central repository.
 
         In our semantics, the name record repository is essentially a multimap (i.e. Dict[str, Set[str]]).
@@ -91,8 +76,7 @@ class NameRecordRepository:
         return sub_name
 
     def delete(self, name):
-        """Deletes an existing record.
-        """
+        """Deletes an existing record."""
         raise NotImplementedError()
 
     def clear_subtree(self, name_root):
@@ -102,8 +86,7 @@ class NameRecordRepository:
         raise NotImplementedError()
 
     def get(self, name):
-        """Returns the value of the key. Raises NameEntryNotFoundError if not found.
-        """
+        """Returns the value of the key. Raises NameEntryNotFoundError if not found."""
         raise NotImplementedError()
 
     def get_subtree(self, name_root):
@@ -113,8 +96,7 @@ class NameRecordRepository:
         raise NotImplementedError()
 
     def find_subtree(self, name_root):
-        """Returns all KEYS whose names start with the path root name_root.
-        """
+        """Returns all KEYS whose names start with the path root name_root."""
         raise NotImplementedError()
 
     def wait(self, name, timeout=None, poll_frequency=1):
@@ -130,25 +112,16 @@ class NameRecordRepository:
             except NameEntryNotFoundError:
                 pass
             if timeout is None or timeout > 0:
-                time.sleep(poll_frequency +
-                           random.random() * .1)  # To reduce concurrency.
+                time.sleep(poll_frequency + random.random() * 0.1)  # To reduce concurrency.
             if timeout is not None and time.monotonic() - start > timeout:
-                raise TimeoutError(
-                    f"Timeout waiting for key '{name}' ({self.__class__.__name__})"
-                )
+                raise TimeoutError(f"Timeout waiting for key '{name}' ({self.__class__.__name__})")
 
     def reset(self):
-        """Deletes all entries added via this repository instance's add(delete_on_exit=True).
-        """
+        """Deletes all entries added via this repository instance's add(delete_on_exit=True)."""
         raise NotImplementedError()
 
-    def watch_names(self,
-                    names: List,
-                    call_back: Callable,
-                    poll_frequency=15,
-                    wait_timeout=300):
-        """Watch a name, execute call_back when key is deleted.
-        """
+    def watch_names(self, names: List, call_back: Callable, poll_frequency=15, wait_timeout=300):
+        """Watch a name, execute call_back when key is deleted."""
         if isinstance(names, str):
             names = [names]
 
@@ -160,15 +133,15 @@ class NameRecordRepository:
             try:
                 q.get_nowait()
             except queue.Empty:
-                logger.info(
-                    f"Key {names} is gone. Executing callback {call_back}")
+                logger.info(f"Key {names} is gone. Executing callback {call_back}")
                 call_back()
 
         for name in names:
-            t = threading.Thread(target=self._watch_thread_run,
-                                 args=(name, wrap_call_back, poll_frequency,
-                                       wait_timeout),
-                                 daemon=True)
+            t = threading.Thread(
+                target=self._watch_thread_run,
+                args=(name, wrap_call_back, poll_frequency, wait_timeout),
+                daemon=True,
+            )
             t.start()
 
     def _watch_thread_run(self, name, call_back, poll_frequency, wait_timeout):
@@ -191,17 +164,11 @@ class MemoryNameRecordRepository(NameRecordRepository):
         self.__store = {}
         self.__log_events = log_events
 
-    def add(self,
-            name,
-            value,
-            delete_on_exit=True,
-            keepalive_ttl=None,
-            replace=False):
+    def add(self, name, value, delete_on_exit=True, keepalive_ttl=None, replace=False):
         if self.__log_events:
             print(f"NameResolve: add {name} {value}")
         if name in self.__store and not replace:
-            raise NameEntryExistsError(
-                f"K={name} V={self.__store[name]} V2={value}")
+            raise NameEntryExistsError(f"K={name} V={self.__store[name]} V2={value}")
         assert isinstance(value, str)
         self.__store[name] = value
 
@@ -220,8 +187,7 @@ class MemoryNameRecordRepository(NameRecordRepository):
             print(f"NameResolve: clear_subtree {name_root}")
         name_root = name_root.rstrip("/")
         for name in list(self.__store):
-            if name_root == "/" or name == name_root or name.startswith(
-                    name_root + "/"):
+            if name_root == "/" or name == name_root or name.startswith(name_root + "/"):
                 del self.__store[name]
 
     def get(self, name):
@@ -238,8 +204,7 @@ class MemoryNameRecordRepository(NameRecordRepository):
         name_root = name_root.rstrip("/")
         rs = []
         for name, value in self.__store.items():
-            if name_root == "/" or name == name_root or name.startswith(
-                    name_root + "/"):
+            if name_root == "/" or name == name_root or name.startswith(name_root + "/"):
                 rs.append(value)
         return rs
 
@@ -258,7 +223,7 @@ class MemoryNameRecordRepository(NameRecordRepository):
 
 
 class NfsNameRecordRepository(NameRecordRepository):
-    RECORD_ROOT = f"/data/aigc/llm/name_resolve/"
+    RECORD_ROOT = f"{cluster_spec.fileroot}/name_resolve/"
 
     def __init__(self, **kwargs):
         self.__to_delete = set()
@@ -271,12 +236,7 @@ class NfsNameRecordRepository(NameRecordRepository):
     def __file_path(name):
         return os.path.join(NfsNameRecordRepository.__dir_path(name), "ENTRY")
 
-    def add(self,
-            name,
-            value,
-            delete_on_exit=True,
-            keepalive_ttl=None,
-            replace=False):
+    def add(self, name, value, delete_on_exit=True, keepalive_ttl=None, replace=False):
         path = self.__file_path(name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.isfile(path) and not replace:
@@ -308,6 +268,8 @@ class NfsNameRecordRepository(NameRecordRepository):
         if os.path.isdir(dir_path):
             logger.info("Removing name resolve path: %s", dir_path)
             shutil.rmtree(dir_path)
+        else:
+            logger.info("No such name resolve path: %s", dir_path)
 
     def get(self, name):
         path = self.__file_path(name)
@@ -321,7 +283,10 @@ class NfsNameRecordRepository(NameRecordRepository):
         rs = []
         if os.path.isdir(dir_path):
             for item in os.listdir(dir_path):
-                rs.append(self.get(os.path.join(name_root, item)))
+                try:
+                    rs.append(self.get(os.path.join(name_root, item)))
+                except NameEntryNotFoundError:
+                    pass
         return rs
 
     def find_subtree(self, name_root):
@@ -337,152 +302,9 @@ class NfsNameRecordRepository(NameRecordRepository):
         for name in list(self.__to_delete):
             try:
                 self.delete(name)
-            except NameEntryNotFoundError:
+            except:
                 pass
         self.__to_delete = {}
-
-
-class RedisNameRecordRepository(NameRecordRepository):
-    _IS_FRL = socket.gethostname().startswith("frl")
-    REDIS_HOST = "redis" if _IS_FRL else "localhost"
-    REDIS_PASSWORD = read_key("redis") if _IS_FRL else None
-    REDIS_DB = 0
-    KEEPALIVE_POLL_FREQUENCY = 1
-
-    @dataclasses.dataclass
-    class _Entry:
-        value: str
-        keepalive_ttl: Optional[int] = None
-        keeper: Optional[timeutil.FrequencyControl] = None
-
-    def __init__(self, **kwargs):
-        super().__init__()
-        self.__lock = threading.Lock()
-        self.__redis = redis.Redis(
-            host=RedisNameRecordRepository.REDIS_HOST,
-            password=RedisNameRecordRepository.REDIS_PASSWORD,
-            db=RedisNameRecordRepository.REDIS_DB,
-            socket_timeout=60,
-            retry_on_timeout=True,
-            retry=Retry(ExponentialBackoff(180, 60), 3))
-        self.__entries = {}
-        self.__keepalive_running = True
-        self.__keepalive_thread = threading.Thread(
-            target=self.__keepalive_thread_run, daemon=True)
-        self.__keepalive_thread.start()
-
-    def __del__(self):
-        self.__keepalive_running = False
-        self.__keepalive_thread.join(timeout=5)
-        self.reset()
-        self.__redis.close()
-
-    def add(self,
-            name,
-            value,
-            delete_on_exit=True,
-            keepalive_ttl=10,
-            replace=False):
-        # deprecated parameter: delete_on_exit, now every entry has a default keepalive_ttl=10 seconds
-        if name.endswith("/"):
-            raise ValueError(f"Entry name cannot end with '/': {name}")
-
-        with self.__lock:
-            keepalive_ttl = int(keepalive_ttl * 1000)
-            assert keepalive_ttl > 0, f"keepalive_ttl in milliseconds must >0: {keepalive_ttl}"
-            if self.__redis.set(name, value, px=keepalive_ttl,
-                                nx=not replace) is None:
-                raise NameEntryExistsError(
-                    f"Cannot set Redis key: K={name} V={value}")
-
-            # touch every 1/3 of keepalive_ttl to prevent Redis from deleting the key
-            # after program exit, redis will automatically delete key in keepalive_ttl
-            self.__entries[name] = self._Entry(
-                value=value,
-                keepalive_ttl=keepalive_ttl,
-                keeper=timeutil.FrequencyControl(
-                    frequency_seconds=keepalive_ttl / 1000 / 3))
-
-    def delete(self, name):
-        with self.__lock:
-            self.__delete_locked(name)
-
-    def __delete_locked(self, name):
-        if name in self.__entries:
-            del self.__entries[name]
-        if self.__redis.delete(name) == 0:
-            raise NameEntryNotFoundError(
-                f"No such Redis entry to delete: {name}")
-
-    def clear_subtree(self, name_root):
-        with self.__lock:
-            count = 0
-            for name in list(self.__find_subtree_locked(name_root)):
-                try:
-                    self.__delete_locked(name)
-                    count += 1
-                except NameEntryNotFoundError:
-                    pass
-            logger.info("Deleted %d Redis entries under %s", count, name_root)
-
-    def get(self, name):
-        with self.__lock:
-            return self.__get_locked(name)
-
-    def __get_locked(self, name):
-        r = self.__redis.get(name)
-        if r is None:
-            raise NameEntryNotFoundError(f"No such Redis entry: {name}")
-        return r.decode()
-
-    def get_subtree(self, name_root):
-        with self.__lock:
-            rs = []
-            for name in self.__find_subtree_locked(name_root):
-                rs.append(self.__get_locked(name))
-            rs.sort()
-            return rs
-
-    def find_subtree(self, name_root):
-        with self.__lock:
-            return list(sorted(self.__find_subtree_locked(name_root)))
-
-    def reset(self):
-        with self.__lock:
-            count = 0
-            for name in list(self.__entries):
-                try:
-                    self.__delete_locked(name)
-                    count += 1
-                except NameEntryNotFoundError:
-                    pass
-            self.__entries = {}
-            logger.info("Reset %d saved Redis entries", count)
-
-    def __keepalive_thread_run(self):
-        while self.__keepalive_running:
-            time.sleep(self.KEEPALIVE_POLL_FREQUENCY)
-            with self.__lock:
-                for name, entry in self.__entries.items():
-                    if entry.keeper is not None and entry.keeper.check():
-                        r = self.__redis.set(name,
-                                             entry.value,
-                                             px=entry.keepalive_ttl)
-                        if r is None:
-                            logger.error(
-                                "Failed touching Redis key: K=%s V=%s", name,
-                                entry.value)
-
-    def __find_subtree_locked(self, name_root):
-        pattern = name_root + "*"
-        return [k.decode() for k in self.__redis.keys(pattern=pattern)]
-
-    def _testonly_drop_cached_entry(self, name):
-        """Used by unittest only to simulate the case that the Python process crashes and the key is
-        automatically removed after TTL."""
-        with self.__lock:
-            del self.__entries[name]
-            print("Testonly: dropped key:", name)
 
 
 def make_repository(type_="nfs", **kwargs):
@@ -490,8 +312,6 @@ def make_repository(type_="nfs", **kwargs):
         return MemoryNameRecordRepository(**kwargs)
     elif type_ == "nfs":
         return NfsNameRecordRepository(**kwargs)
-    elif type_ == "redis":
-        return RedisNameRecordRepository(**kwargs)
     else:
         raise NotImplementedError(f"No such name resolver: {type_}")
 
