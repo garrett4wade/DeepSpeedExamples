@@ -86,7 +86,8 @@ class DeepSpeedPPOTrainer():
             top_p=0.9,
             top_k=2048,
             temperature=1.2,
-            do_sample=True))
+            # do_sample=True,
+            ))
         print(f"avg_prompt_len={float(mask.float().sum(1).mean()):.2f}")
 
         with torch.no_grad():
@@ -172,6 +173,7 @@ class DeepSpeedPPOTrainer():
             logits_ref = logits_ref.to(torch.float)
 
         self.generate_time = generate_end - generate_start
+        torch.cuda.empty_cache()
 
         return {
             'prompts': prompts,
@@ -296,6 +298,7 @@ class DeepSpeedPPOTrainer():
             self.actor_model.step()
 
         self.critic_model.step()
+        torch.cuda.empty_cache()
 
         return actor_loss, critic_loss
 

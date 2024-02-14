@@ -29,7 +29,6 @@ task_mapping = {
     "rlhf": "step3_rlhf_finetuning",
 }
 
-global_batch_size = 512
 n_ppo_mbs = 4
 max_prompt_len = 1024
 max_answer_len = 1024
@@ -50,12 +49,25 @@ def get_path_from_model_size(model_size: int):
 
 
 def get_ngpus_and_nodelist_from_model_size(model_size: int):
-    if model_size in [7, 13]:
+    if model_size in [7]:
+        return 8, "QH-com17"
+    elif model_size == 13:
         return 16, "QH-com[17-18]"
     elif model_size in [34]:
-        return 32, "QH-com[30-34,36-37]"
+        return 48, "QH-com[27-28,30-33]"
     elif model_size == 70:
-        return 64, "QH-com[25-34,36-43]"
+        return 64, "QH-com[25-28,30-33]"
+
+
+def get_global_batch_size_from_model_size(model_size: int):
+    if model_size == 7:
+        return 4 * 8
+    elif model_size == 13:
+        return 4 * 16
+    elif model_size in [34]:
+        return 4 * 48
+    elif model_size == 70:
+        return 4 * 64
 
 
 def main(args):
@@ -71,6 +83,7 @@ def main(args):
         f"-p {{wprocs_per_jobstep}} -j {{wprocs_in_job}} -o {{wproc_offset}}"
     )
 
+    global_batch_size = get_global_batch_size_from_model_size(args.actor_size)
     actor_path = get_path_from_model_size(args.actor_size)
     critic_path = get_path_from_model_size(args.critic_size)
     n_actor_gpus, nodelist = get_ngpus_and_nodelist_from_model_size(args.actor_size)
@@ -167,7 +180,7 @@ def main(args):
         cpu=4,
         gpu_type="tesla",
         gpu=1,
-        mem=100 * 1024,
+        mem=120 * 1024,
         env_vars=env_vars,
         container_image="llm/llm-dschat",
         container_mounts=cluster_spec.default_mount,
