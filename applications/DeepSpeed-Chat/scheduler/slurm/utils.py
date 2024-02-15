@@ -272,6 +272,16 @@ class SlurmLaunchInfo:
         job_infos = query_jobs(slurm_names=[self.slurm_name])
         job_infos = sorted(job_infos, key=lambda x: parse_formatted_time(x.submit_time), reverse=True)
         self.job_info = job_infos[0] if len(job_infos) > 0 else None
+        # check log, if log error, return error state
+        job_error = False
+        with open(self.log_path, 'r', errors='ignore') as f:
+            lines = f.readlines()
+            for line in lines:
+                if "torch.cuda.OutOfMemoryError" in line or "RuntimeError" in line or "srun: error" in line:
+                    job_error = True
+                    break
+        if job_error:
+            self.job_info.state = JobState.FAILED
         if self.job_info:
             return self.job_info.state
         else:

@@ -13,12 +13,20 @@ DATE_FORMAT = "%Y%m%d-%H:%M:%S"
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", "-e", type=str, required=True)
 parser.add_argument("--trial_name", "-f", type=str, required=True)
-parser.add_argument("--task_type", "-t", type=str, choices=["sft", "rw", "rlhf"], required=True)
+parser.add_argument("--task_type", "-t", type=str, choices=["sft", "rw", "rlhf"], default="rlhf")
 parser.add_argument("--mode", type=str, default="slurm")
 parser.add_argument("--actor_size", type=int, choices=[7, 13, 34, 70], default=7)
 parser.add_argument("--critic_size", type=int, choices=[7, 13, 34, 70], default=7)
 parser.add_argument("--actor_zero_stage", type=int, default=3)
 parser.add_argument("--critic_zero_stage", type=int, default=3)
+parser.add_argument("--offload", action="store_true")
+parser.add_argument("--offload_ref", action="store_true")
+parser.add_argument("--max_answer_len", type=int, default=256)
+parser.add_argument("--use_hybrid_engine", action="store_true")
+parser.add_argument("--inference_tp_size", type=int, default=1)
+parser.add_argument("--tp_gather_partition_size", type=int, default=1)
+parser.add_argument("--gen_bs", type=int, default=1)
+parser.add_argument("--train_bs", type=int, default=1)
 args = parser.parse_args()
 
 USER_NAMESPACE = getpass.getuser()
@@ -30,8 +38,8 @@ task_mapping = {
 }
 
 n_ppo_mbs = 4
-max_prompt_len = 1024
-max_answer_len = 1024
+max_prompt_len = 256
+max_answer_len = args.max_answer_len
 
 
 def get_path_from_model_size(model_size: int):
@@ -50,24 +58,13 @@ def get_path_from_model_size(model_size: int):
 
 def get_ngpus_and_nodelist_from_model_size(model_size: int):
     if model_size in [7]:
-        return 8, "QH-com17"
+        return 8, "QH-com16"
     elif model_size == 13:
         return 16, "QH-com[17-18]"
     elif model_size in [34]:
-        return 48, "QH-com[27-28,30-33]"
+        return 32, "QH-com[30-33]"
     elif model_size == 70:
         return 64, "QH-com[25-28,30-33]"
-
-
-def get_global_batch_size_from_model_size(model_size: int):
-    if model_size == 7:
-        return 4 * 8
-    elif model_size == 13:
-        return 4 * 16
-    elif model_size in [34]:
-        return 4 * 48
-    elif model_size == 70:
-        return 4 * 64
 
 
 def main(args):
@@ -83,13 +80,11 @@ def main(args):
         f"-p {{wprocs_per_jobstep}} -j {{wprocs_in_job}} -o {{wproc_offset}}"
     )
 
-    global_batch_size = get_global_batch_size_from_model_size(args.actor_size)
     actor_path = get_path_from_model_size(args.actor_size)
     critic_path = get_path_from_model_size(args.critic_size)
     n_actor_gpus, nodelist = get_ngpus_and_nodelist_from_model_size(args.actor_size)
-    assert global_batch_size % n_actor_gpus == 0
-    per_device_batch_size = global_batch_size // n_actor_gpus
-    assert per_device_batch_size % n_ppo_mbs == 0
+    per_device_gen_bs = args.gen_bs
+    per_device_batch_size = n_ppo_mbs * args.train_bs
 
     if args.task_type == "sft":
         flags = [
@@ -110,7 +105,6 @@ def main(args):
             "--zero_stage 2",
             "--lora_dim 128",
             "--lora_module_name decoder.layers.",
-            f"--output_dir {output_dir}",
         ]
     elif args.task_type == "rw":
         flags = [
@@ -130,7 +124,6 @@ def main(args):
             "--num_warmup_steps 0",
             "--seed 1",
             "--zero_stage 2",
-            f"--output_dir {output_dir}",
         ]
     elif args.task_type == "rlhf":
         flags = [
@@ -139,9 +132,9 @@ def main(args):
             f"--actor_model_name_or_path {actor_path}",
             f"--critic_model_name_or_path {critic_path}",
             "--num_padding_at_beginning 0",
-            f"--per_device_generation_batch_size {per_device_batch_size}",
-            f"--per_device_training_batch_size {per_device_batch_size // n_ppo_mbs}",
-            "--generation_batches 1",
+            f"--per_device_generation_batch_size {per_device_gen_bs}",
+            f"--per_device_training_batch_size {args.train_bs}",
+            f"--generation_batches {per_device_batch_size // per_device_gen_bs}",
             "--ppo_epochs 1",
             f"--max_answer_seq_len {max_answer_len}",
             f"--max_prompt_seq_len {max_prompt_len}",
@@ -152,9 +145,6 @@ def main(args):
             "--gradient_accumulation_steps 1",
             "--num_warmup_steps 100",
             "--seed 1234",
-            "--enable_hybrid_engine",
-            # "--inference_tp_size 2",
-            # "--tp_gather_partition_size 2",
             f"--actor_zero_stage {args.actor_zero_stage}",
             f"--critic_zero_stage {args.critic_zero_stage}",
             "--actor_gradient_checkpointing",
@@ -162,7 +152,19 @@ def main(args):
             "--enable_test_mode",
             "--test_stop_step 20",
         ]
+        if args.use_hybrid_engine:
+            flags.append("--enable_hybrid_engine")
+        if args.offload and "--offload" not in flags:
+            flags.append("--offload")
+        if args.offload_ref and "--offload_reference_model" not in flags:
+            flags.append("--offload_reference_model")
+        flags.append(f"--inference_tp_size {args.inference_tp_size}")
+        flags.append(f"--tp_gather_partition_size {args.tp_gather_partition_size}")
     cmd = " ".join([cmd] + flags)
+
+    log_path = f"/lustre/aigc/llm/logs/fw/{args.experiment_name}/{args.trial_name}/{args.task_type}-0"
+    if os.path.exists(log_path):
+        os.system(f"rm -rf {log_path}")
 
     env_vars = {
         # "PYTHONPATH":
@@ -190,7 +192,7 @@ def main(args):
 
     try:
         sched.wait()
-    except (KeyboardInterrupt, sched_client.JobException, TimeoutError) as e:
+    except (KeyboardInterrupt, sched_client.JobException, TimeoutError, Exception) as e:
         sched.stop_all()
         raise e
 

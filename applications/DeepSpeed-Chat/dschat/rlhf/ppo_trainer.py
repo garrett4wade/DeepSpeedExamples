@@ -82,7 +82,7 @@ class DeepSpeedPPOTrainer():
             kwargs = dict(do_sample=False)
         else:
             kwargs = dict()
-        kwargs.update(dict(min_length=10 + prompts.shape[1],
+        kwargs.update(dict(min_length=max_min_length,
             top_p=0.9,
             top_k=2048,
             temperature=1.2,
