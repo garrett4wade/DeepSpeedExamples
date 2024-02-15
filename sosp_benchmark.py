@@ -1,6 +1,11 @@
 import os
 import subprocess
 import itertools
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--model_size", "-x", type=int, choices=[7, 13, 34, 70], required=True, nargs="+")
+args = parser.parse_args()
 
 
 def sweep(model_size: int):
@@ -51,6 +56,5 @@ def sweep(model_size: int):
 
 
 if __name__ == "__main__":
-    # sweep(13)
-    sweep(34)
-    sweep(70)
+    for model_size in args.model_size:
+        sweep(model_size)

@@ -22,6 +22,9 @@ import os
 import random
 import time
 import torch
+import pynvml
+import torch.distributed
+import multiprocessing as mp
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 
@@ -46,9 +49,28 @@ from dschat.utils.utils import print_rank_0, to_device, save_hf_format, set_rand
 from dschat.utils.module.lora import convert_lora_to_linear_layer
 from dschat.utils.perf import print_throughput_step3
 from deepspeed.accelerator import get_accelerator
+import logging
 
+LOG_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(levelname)s: %(message)s"
+DATE_FORMAT = "%Y%m%d-%H:%M:%S"
+
+logging.basicConfig(format=LOG_FORMAT, datefmt=DATE_FORMAT, level=os.environ.get("LOGLEVEL", "INFO"))
+logger = logging.getLogger("DeepSpeed Slurm Launch")
 writer = None
 
+def gpu_utilization_monitor(gpu_idx:int, ttl:float):
+    pynvml.nvmlInit()
+    tik = time.time()
+    while time.time() - tik < ttl:
+        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_idx)
+        utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        total_memory = memory_info.total / (1024 ** 2)  # Convert bytes to megabytes
+        used_memory = memory_info.used / (1024 ** 2)
+        memory_usage_percentage = (used_memory / total_memory) * 100
+        logger.info(f"GPU {gpu_idx}: Compute Utilization - {utilization.gpu}%, Total Memory - {total_memory:.2f}MB, Used Memory - {used_memory:.2f}MB, Memory Usage - {memory_usage_percentage:.2f}%")
+        time.sleep(10)
+    pynvml.nvmlShutdown()
 
 def parse_args():
     global writer
@@ -570,6 +592,9 @@ def main():
     step_average_reward = 0.
     ema_reward_score = ExponentialMovingAverage()
 
+    gpu_util_process = mp.Process(target=gpu_utilization_monitor, args=(torch.distributed.get_rank(), 7200))
+    gpu_util_process.start()
+
     for epoch in range(args.num_train_epochs):
         print_rank_0(
             f"Beginning of Epoch {epoch+1}/{args.num_train_epochs}, Total Generation Batches {min(len(prompt_train_dataloader), len(unsupervised_train_dataloader))}",
@@ -728,6 +753,7 @@ def main():
                                   save_dir=os.path.join(
                                       args.output_dir, 'critic'),
                                   zero_stage=args.critic_zero_stage)
+    gpu_util_process.kill()
 
 
 if __name__ == "__main__":
