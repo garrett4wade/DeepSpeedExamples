@@ -429,7 +429,7 @@ def parse_args():
     parser.add_argument(
         "--test_stop_step",
         type=int,
-        default=0,
+        default=20,
         help=
         "Training non-overflow step at which to terminate training during testing."
     )
@@ -595,6 +595,8 @@ def main():
     gpu_util_process = mp.Process(target=gpu_utilization_monitor, args=(torch.distributed.get_rank(), 7200))
     gpu_util_process.start()
 
+    valid_train_cnt = 0
+
     for epoch in range(args.num_train_epochs):
         print_rank_0(
             f"Beginning of Epoch {epoch+1}/{args.num_train_epochs}, Total Generation Batches {min(len(prompt_train_dataloader), len(unsupervised_train_dataloader))}",
@@ -632,6 +634,7 @@ def main():
                 if args.actor_gradient_checkpointing:
                     rlhf_engine.actor.gradient_checkpointing_enable()
 
+                assert args.ppo_epochs == 1
                 for ppo_ep in range(args.ppo_epochs):
                     for i, (exp_data, unsup_data) in enumerate(
                             zip(exp_dataset, unsup_dataset)):
@@ -653,6 +656,7 @@ def main():
 
                     random.shuffle(exp_dataset)
                     random.shuffle(unsup_dataset)
+                valid_train_cnt += 1
 
                 end = time.time()
                 training_time = end - training_start
@@ -706,11 +710,15 @@ def main():
             if not actor_overflow and not critic_overflow:
                 non_overflow_step_count += 1
 
-            if args.enable_test_mode and non_overflow_step_count == args.test_stop_step:
-                break
+            if valid_train_cnt >= 10:
+                gpu_util_process.kill()
+                exit(0)
 
-        if args.enable_test_mode:
-            break
+            # if args.enable_test_mode and non_overflow_step_count == args.test_stop_step:
+            #     break
+
+        # if args.enable_test_mode:
+        #     break
 
     if args.output_dir is not None:
         print_rank_0('saving model ...')

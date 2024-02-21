@@ -88,7 +88,6 @@ class DeepSpeedPPOTrainer():
             temperature=1.2,
             # do_sample=True,
             ))
-        print(f"avg_prompt_len={float(mask.float().sum(1).mean()):.2f}")
 
         with torch.no_grad():
             seq = self.actor_model.module.generate(
@@ -98,6 +97,7 @@ class DeepSpeedPPOTrainer():
                 pad_token_id=self.tokenizer.pad_token_id,
                 synced_gpus=self.z3_enabled,
                 **kwargs)
+        print(f"avg_prompt_len={float(mask.float().sum(1).mean()):.2f}, avg_seqlen={seq.shape[1]:.2f}")
 
         # Filter out seq with no answers (or very short). This happens when users directly use the pre-training ckpt without supervised finetuning
         # NOTE: this will causes each GPU has different number of examples
