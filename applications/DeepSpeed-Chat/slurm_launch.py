@@ -64,7 +64,7 @@ def get_ngpus_and_nodelist_from_model_size(model_size: int):
     elif model_size in [34]:
         return 32, "QH-com[44-47]"
     elif model_size == 70:
-        return 64, "QH-com[25-28,30-33]"
+        return 64, "QH-com[36-43]"
 
 
 def main(args):

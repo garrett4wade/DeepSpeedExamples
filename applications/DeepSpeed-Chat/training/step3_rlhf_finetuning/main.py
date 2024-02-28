@@ -597,6 +597,8 @@ def main():
 
     valid_train_cnt = 0
 
+    train_start_tik = time.perf_counter()
+    train_step_gen_time = 0
     for epoch in range(args.num_train_epochs):
         print_rank_0(
             f"Beginning of Epoch {epoch+1}/{args.num_train_epochs}, Total Generation Batches {min(len(prompt_train_dataloader), len(unsupervised_train_dataloader))}",
@@ -612,11 +614,13 @@ def main():
             #     prompts = prompts[:, length - args.max_prompt_seq_len:]
             #     raise ValueError("Prompt length is too long")
 
+            gen_tik = time.perf_counter()
             out = trainer.generate_experience(batch_prompt['prompt'],
                                               batch_prompt['prompt_att_mask'],
                                               step)
+            train_step_gen_time += time.perf_counter() - gen_tik
 
-            training_start = time.time()
+            # training_start = time.time()
             if batch_unsupervised is not None:
                 batch_unsupervised = to_device(batch_unsupervised, device)
                 unsup_dataset = unsup_mini_dataset.add(batch_unsupervised)
@@ -627,6 +631,7 @@ def main():
             exp_dataset = exp_mini_dataset.add(out)
 
             if exp_dataset is not None:
+                train_step_tik = time.perf_counter()
                 inner_iter = 0
                 actor_loss_sum, critic_loss_sum, unsup_loss_sum = 0, 0, 0
                 average_reward = 0
@@ -657,17 +662,22 @@ def main():
                     random.shuffle(exp_dataset)
                     random.shuffle(unsup_dataset)
                 valid_train_cnt += 1
+                training_time = time.perf_counter() - train_step_tik
 
-                end = time.time()
-                training_time = end - training_start
-                e2e_time = training_time + trainer.generate_time * args.generation_batches  # it is an approximation, we did not include, e.g., rw forward time etc
+                # end = time.time()
+                # training_time = end - training_start
+                e2e_time = time.perf_counter() - train_start_tik
+                train_start_tik = time.perf_counter()
+                generate_time = train_step_gen_time
+                train_step_gen_time = 0
+                # e2e_time = training_time + trainer.generate_time * args.generation_batches  # it is an approximation, we did not include, e.g., rw forward time etc
 
                 print_rank_0(
                     f'Epoch: {epoch} | Step: {step} | PPO Epoch: {ppo_ep+1} | Actor Loss: {actor_loss_sum/inner_iter} | Critic Loss: {critic_loss_sum/inner_iter} | Unsupervised Loss: {unsup_loss_sum/inner_iter}',
                     args.global_rank)
                 print_throughput_step3(rlhf_engine.actor.module,
                                        rlhf_engine.critic, args, e2e_time,
-                                       trainer.generate_time, training_time,
+                                       generate_time, training_time,
                                        args.global_rank)
 
                 average_reward = get_all_reduce_mean(average_reward).item()
