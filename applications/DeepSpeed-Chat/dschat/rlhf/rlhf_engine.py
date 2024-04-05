@@ -104,6 +104,13 @@ class DeepSpeedRLHFEngine():
                 actor_model = make_model_gradient_checkpointing_compatible(
                     actor_model)
 
+        # def make_inputs_require_grad(module, input, output):
+        #     output.requires_grad_(True)
+
+        # # actor_model.model.embed_tokens.weight.requires_grad=True
+        # actor_model.model.embed_tokens.register_forward_hook(
+        #     make_inputs_require_grad)
+
         # Optimizer
         AdamOptimizer = DeepSpeedCPUAdam if self.args.offload else FusedAdam
         optim_params = get_optimizer_grouped_parameters(
@@ -234,6 +241,12 @@ class DeepSpeedRLHFEngine():
                 critic_model = only_optimize_lora_parameters(critic_model)
                 critic_model = make_model_gradient_checkpointing_compatible(
                     critic_model)
+        
+        # def make_inputs_require_grad(module, input, output):
+        #     output.requires_grad_(True)
+        # # critic_model.rwtransformer.embed_tokens.weight.requires_grad=True
+        # critic_model.rwtransformer.embed_tokens.register_forward_hook(
+        #     make_inputs_require_grad)
 
         # Optimizer
         AdamOptimizer = DeepSpeedCPUAdam if self.args.offload else FusedAdam

@@ -73,6 +73,7 @@ def _parselog(
         OOM=oom,
         Throughput=thpt,
         MaxGPUMemory=max_mem,
+        avg_tflops=avg_tflops,
     )
     for k, v in d.items():
         benchmark_db[k].append(v)

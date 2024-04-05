@@ -27,6 +27,8 @@ parser.add_argument("--inference_tp_size", type=int, default=1)
 parser.add_argument("--tp_gather_partition_size", type=int, default=1)
 parser.add_argument("--gen_bs", type=int, default=1)
 parser.add_argument("--train_bs", type=int, default=1)
+parser.add_argument("--lora", action="store_true")
+parser.add_argument("--lora_dim", type=int, default=4)
 args = parser.parse_args()
 
 USER_NAMESPACE = getpass.getuser()
@@ -58,9 +60,9 @@ def get_path_from_model_size(model_size: int):
 
 def get_ngpus_and_nodelist_from_model_size(model_size: int):
     if model_size in [7]:
-        return 8, "QH-com16"
+        return 8, "QH-com17"
     elif model_size == 13:
-        return 16, "QH-com[17-18]"
+        return 16, "QH-com[18-19]"
     elif model_size in [34]:
         return 32, "QH-com[44-47]"
     elif model_size == 70:
@@ -160,6 +162,13 @@ def main(args):
             flags.append("--offload_reference_model")
         flags.append(f"--inference_tp_size {args.inference_tp_size}")
         flags.append(f"--tp_gather_partition_size {args.tp_gather_partition_size}")
+        if args.lora:
+            assert args.lora_dim > 0
+            flags.append(f"--actor_lora_dim {args.lora_dim}")
+            flags.append(f"--actor_lora_module_name .self_attn.")
+            flags.append(f"--critic_lora_dim {args.lora_dim}")
+            flags.append(f"--critic_lora_module_name .self_attn.")
+            flags.append(f"--only_optimize_lora")
     cmd = " ".join([cmd] + flags)
 
     log_path = f"/lustre/aigc/llm/logs/fw/{args.experiment_name}/{args.trial_name}/{args.task_type}-0"

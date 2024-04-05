@@ -350,7 +350,7 @@ def parse_args():
                         help="If > 0, use LoRA for efficient training.")
     parser.add_argument("--actor_lora_module_name",
                         type=str,
-                        default="decoder.layers.",
+                        default=".layers.",
                         help="The scope of LoRA.")
     parser.add_argument("--critic_lora_dim",
                         type=int,
@@ -358,7 +358,7 @@ def parse_args():
                         help="If > 0, use LoRA for efficient training.")
     parser.add_argument("--critic_lora_module_name",
                         type=str,
-                        default="decoder.layers.",
+                        default=".layers.",
                         help="The scope of LoRA.")
     parser.add_argument('--only_optimize_lora',
                         action='store_true',
@@ -675,6 +675,7 @@ def main():
                 print_rank_0(
                     f'Epoch: {epoch} | Step: {step} | PPO Epoch: {ppo_ep+1} | Actor Loss: {actor_loss_sum/inner_iter} | Critic Loss: {critic_loss_sum/inner_iter} | Unsupervised Loss: {unsup_loss_sum/inner_iter}',
                     args.global_rank)
+                print(f">>>>> pure generate time {trainer.generate_time:.2f}s")
                 print_throughput_step3(rlhf_engine.actor.module,
                                        rlhf_engine.critic, args, e2e_time,
                                        generate_time, training_time,
