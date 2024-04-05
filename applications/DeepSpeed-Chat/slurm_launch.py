@@ -40,7 +40,7 @@ task_mapping = {
 }
 
 n_ppo_mbs = 4
-max_prompt_len = 256
+max_prompt_len = 128
 max_answer_len = args.max_answer_len
 
 
@@ -64,7 +64,7 @@ def get_ngpus_and_nodelist_from_model_size(model_size: int):
     elif model_size == 13:
         return 16, "QH-com[18-19]"
     elif model_size in [34]:
-        return 32, "QH-com[44-47]"
+        return 32, "QH-com[20,22-24]"
     elif model_size == 70:
         return 64, "QH-com[36-43]"
 
@@ -85,8 +85,8 @@ def main(args):
     actor_path = get_path_from_model_size(args.actor_size)
     critic_path = get_path_from_model_size(args.critic_size)
     n_actor_gpus, nodelist = get_ngpus_and_nodelist_from_model_size(args.actor_size)
-    per_device_gen_bs = args.gen_bs
-    per_device_batch_size = n_ppo_mbs * args.train_bs
+    assert args.gen_bs == args.train_bs
+    assert args.train_bs // n_ppo_mbs > 0
 
     if args.task_type == "sft":
         flags = [
@@ -134,9 +134,9 @@ def main(args):
             f"--actor_model_name_or_path {actor_path}",
             f"--critic_model_name_or_path {critic_path}",
             "--num_padding_at_beginning 0",
-            f"--per_device_generation_batch_size {per_device_gen_bs}",
-            f"--per_device_training_batch_size {args.train_bs}",
-            f"--generation_batches {per_device_batch_size // per_device_gen_bs}",
+            f"--per_device_generation_batch_size {args.gen_bs}",
+            f"--per_device_training_batch_size {args.train_bs // n_ppo_mbs}",
+            f"--generation_batches 1",
             "--ppo_epochs 1",
             f"--max_answer_seq_len {max_answer_len}",
             f"--max_prompt_seq_len {max_prompt_len}",
