@@ -8,35 +8,65 @@ from sosp_parselog import _parselog
 # fmt: off
 interested_settings = [
     # model size 7
-    dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=128),
-    dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=64),
-    dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=32),
-    dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=128),
-    dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=64),
-    dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=32),
-    # model size 13
-    dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=64),
-    dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=32),
-    dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=16),
-    dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=64),
-    dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=32),
-    dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=16),
-    # model size 34
-    dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=32),
-    dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=16),
-    dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=8),
-    dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=32),
-    dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=16),
-    dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=8),
-    # model size 70
-    dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=16),
-    dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=8),
-    dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=4),
-    dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=16),
-    dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=8),
-    dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=4),
+    # dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=128),
+    # dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=64),
+    # dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=32),
+    # dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=128),
+    # dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=64),
+    # dict(model_size=7, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=32),
+    # # model size 13
+    # dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=64),
+    # dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=32),
+    # dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=16),
+    # dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=64),
+    # dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=32),
+    # dict(model_size=13, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=16),
+    # # model size 34
+    # dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=32),
+    # dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=16),
+    # dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=8),
+    # dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=32),
+    # dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=16),
+    # dict(model_size=34, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=8),
+    # # model size 70
+    # dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=True, gen_bs=16),
+    # dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=True, gen_bs=8),
+    # dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=True, gen_bs=4),
+    # dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=128, offload=False, gen_bs=16),
+    # dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=384, offload=False, gen_bs=8),
+    # dict(model_size=70, actor_zero_stage=3, critic_zero_stage=3, max_answer_len=896, offload=False, gen_bs=4),
 ]
+
 # fmt: on
+for model_size in [7, 13, 34, 70]:
+    if model_size <= 13:
+        zero_stages = [2, 3]
+    else:
+        zero_stages = [3]
+    for zero_stage, offload, (global_bs, genlen) in itertools.product(
+        zero_stages, [False, True], [(128, 896), (256, 384), (512, 128)]
+    ):
+        if model_size == 7:
+            n_gpus = 8
+        elif model_size == 13:
+            n_gpus = 16
+        elif model_size == 34:
+            n_gpus = 32
+        elif model_size == 70:
+            n_gpus = 64
+        assert global_bs % n_gpus == 0
+        assert global_bs * (128 + genlen) == 2**17
+        if global_bs // n_gpus >= 4:
+            interested_settings.append(
+                dict(
+                    model_size=model_size,
+                    actor_zero_stage=zero_stage,
+                    critic_zero_stage=zero_stage,
+                    max_answer_len=genlen,
+                    gen_bs=global_bs // n_gpus,
+                    offload=offload,
+                )
+            )
 
 
 def build_default_sweep_settings(model_size: int):

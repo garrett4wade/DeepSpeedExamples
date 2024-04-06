@@ -60,13 +60,13 @@ def get_path_from_model_size(model_size: int):
 
 def get_ngpus_and_nodelist_from_model_size(model_size: int):
     if model_size in [7]:
-        return 8, "QH-com17"
+        return 8, "QH-com30"
     elif model_size == 13:
-        return 16, "QH-com[18-19]"
+        return 16, "QH-com[42-43]"
     elif model_size in [34]:
-        return 32, "QH-com[20,22-24]"
+        return 32, "QH-com[44-47]"
     elif model_size == 70:
-        return 64, "QH-com[36-43]"
+        return 64, "QH-com[21-28]"
 
 
 def main(args):
