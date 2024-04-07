@@ -12,16 +12,15 @@ benchmark_db = defaultdict(list)
 
 
 def _parselog(
-    model_size: int,
+    actor_size: int,
+    critic_size: int,
     actor_zero_stage: int,
     critic_zero_stage: int,
     seqlen: int,
     gen_bs: int,
     offload: bool,
 ):
-    exp_name = (
-        f"rerun-dschat-a{model_size}-z{actor_zero_stage}-c7r7-cz{critic_zero_stage}-seqlen{seqlen}-g{gen_bs}"
-    )
+    exp_name = f"rerun-dschat-a{actor_size}-z{actor_zero_stage}-c{critic_size}r7-cz{critic_zero_stage}-seqlen{seqlen}-g{gen_bs}"
     if offload:
         exp_name += "-offload"
     logpath = f"/lustre/aigc/llm/logs/fw/{exp_name}/benchmark/rlhf-0"
@@ -67,7 +66,8 @@ def _parselog(
         thpt = -float("inf")
         max_mem = 0.0
     d = dict(
-        model_size=model_size,
+        actor_size=actor_size,
+        critic_size=critic_size,
         actor_zero_stage=actor_zero_stage,
         critic_zero_stage=critic_zero_stage,
         seqlen=seqlen,
@@ -84,18 +84,18 @@ def _parselog(
     return True
 
 
-def parselog(model_size: int):
+def parselog(actor_size: int, critic_size: int):
     # takeaways
     # 1. when actor zero=3, critic zero=2 or 3 makes no difference. So by default we set critic zero=3;
     # 2. when actor zero=2, inference_tp_size must be 1;
     # 3. max GPU memory used is usually determined by gen_bs;
-    if model_size == 7:
+    if max(actor_size, critic_size) == 7:
         n_gpus = 8
-    elif model_size == 13:
+    elif max(actor_size, critic_size) == 13:
         n_gpus = 16
-    elif model_size == 34:
+    elif max(actor_size, critic_size) == 34:
         n_gpus = 32
-    elif model_size == 70:
+    elif max(actor_size, critic_size) == 70:
         n_gpus = 64
 
     critic_zero_stages = [3, 2]
@@ -105,21 +105,26 @@ def parselog(model_size: int):
     for critic_zero_stage, actor_zero_stage in itertools.product(critic_zero_stages, actor_zero_stages):
         for (max_answer_len, global_bs), offload in itertools.product(seqlens_global_bs, offloads):
             gen_bs = global_bs // n_gpus
-            _parselog(model_size, actor_zero_stage, critic_zero_stage, max_answer_len, gen_bs, offload)
+            _parselog(
+                actor_size, critic_size, actor_zero_stage, critic_zero_stage, max_answer_len, gen_bs, offload
+            )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_size", "-x", type=int, default=7, choices=[7, 13, 34, 70], nargs="+")
+    parser.add_argument("--actor_size", "-a", type=int, default=[7, 13, 34, 70], choices=[7, 13, 34, 70], nargs="+")
+    parser.add_argument("--critic_size", "-c", type=int, default=[7, 13, 34, 70], choices=[7, 13, 34, 70], nargs="+")
     parser.add_argument("--max", action="store_true")
     parser.add_argument("--dump_to_file", type=str, default=None)
+    parser.add_argument('--no_print', action='store_true')
     args = parser.parse_args()
-    for model_size in args.model_size:
-        parselog(model_size)
+    for actor_size, critic_size in itertools.product(args.actor_size, args.critic_size):
+        parselog(actor_size, critic_size)
     df = pd.DataFrame(benchmark_db)
     if args.max:
-        df = df.loc[df.groupby(["model_size", "seqlen"])["Throughput"].idxmax()]
-    print(df.to_string(index=False))
+        df = df.loc[df.groupby(["actor_size", "seqlen", "critic_size"])["Throughput"].idxmax()]
+    if not args.no_print:
+        print(df.to_string(index=False))
     if args.dump_to_file:
         with open(args.dump_to_file, "wb") as f:
             pickle.dump(df, f)
