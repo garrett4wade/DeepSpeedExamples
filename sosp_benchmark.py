@@ -38,43 +38,59 @@ interested_settings = [
 ]
 
 # fmt: on
-for model_size in [7, 13, 34, 70]:
-    if model_size <= 13:
-        zero_stages = [2, 3]
-    else:
-        zero_stages = [3]
-    for zero_stage, offload, (global_bs, genlen) in itertools.product(
-        zero_stages, [False, True], [(128, 896), (256, 384), (512, 128)]
-    ):
-        if model_size == 7:
-            n_gpus = 8
-        elif model_size == 13:
-            n_gpus = 16
-        elif model_size == 34:
-            n_gpus = 32
-        elif model_size == 70:
-            n_gpus = 64
-        assert global_bs % n_gpus == 0
-        assert global_bs * (128 + genlen) == 2**17
-        if global_bs // n_gpus >= 4:
-            interested_settings.append(
-                dict(
-                    model_size=model_size,
-                    actor_zero_stage=zero_stage,
-                    critic_zero_stage=zero_stage,
-                    max_answer_len=genlen,
-                    gen_bs=global_bs // n_gpus,
-                    offload=offload,
-                )
-            )
 
 
-def build_default_sweep_settings(model_size: int):
+def get_default_n_gpus(model_size: int):
+    if model_size in [7]:
+        return 8
+    elif model_size == 13:
+        return 16
+    elif model_size in [34]:
+        return 32
+    elif model_size == 70:
+        return 64
+
+
+def build_default_sweep_settings(model_size: int, gpu_scale_factor: int):
     settings = []
+    for model_size in [7, 13, 34, 70]:
+        if model_size <= 13:
+            zero_stages = [2, 3]
+        else:
+            zero_stages = [3]
+        default_n_gpus = get_default_n_gpus(model_size)
+        n_gpus = default_n_gpus * gpu_scale_factor
+        global_bs_seqlens = [(128, 896), (256, 384), (512, 128)] if default_n_gpus == n_gpus else [(256, 384)]
+        for zero_stage, offload, (global_bs, genlen) in itertools.product(
+            zero_stages, [False, True], global_bs_seqlens
+        ):
+            if global_bs < n_gpus:
+                continue
+            assert global_bs % n_gpus == 0, (global_bs, n_gpus)
+            assert global_bs * (128 + genlen) == 2**17
+            
+            if zero_stage == 2 and offload:
+                # NOTE: This is due to the limitation of DSChat
+                # This config will report (step3_rlhf_finetuning/main.py, line 454)
+                # ValueError: The combination of [actor_zero_stage==2, critic_zero_stage==2, enable_hybrid_engine=True, offload=True, lora=False] is currently unsupported due to training instability
+                continue
+            
+            if global_bs // n_gpus >= 4:
+                settings.append(
+                    dict(
+                        model_size=model_size,
+                        actor_zero_stage=zero_stage,
+                        critic_zero_stage=zero_stage,
+                        max_answer_len=genlen,
+                        gen_bs=global_bs // n_gpus,
+                        offload=offload,
+                        n_gpus=n_gpus,
+                    )
+                )
     return settings
 
 
-def sweep(model_size: int, verbose_only: bool, scale_actor: bool, scale_critic: bool):
+def sweep(model_size: int, verbose_only: bool, scale_actor: bool, scale_critic: bool, gpu_scale_factor: int):
     assert scale_actor or scale_critic
     actor_size = model_size if scale_actor else 7
     critic_size = model_size if scale_critic else 7
@@ -93,9 +109,9 @@ def sweep(model_size: int, verbose_only: bool, scale_actor: bool, scale_critic: 
 
     global interested_settings
     interested_settings = list(filter(lambda x: x["model_size"] == model_size, interested_settings))
-    assert len(interested_settings) > 0
     if len(interested_settings) == 0:
-        settings = build_default_sweep_settings(model_size)
+        settings = build_default_sweep_settings(model_size, gpu_scale_factor=gpu_scale_factor)
+        settings = list(filter(lambda x: x["model_size"] == model_size, settings))
         print(
             f">>>>>>>>>>>>>>>> No interested settings for actor {actor_size} critic {critic_size} found. Using default {len(settings)} settings. <<<<<<<<<<<<<<<<"
         )
@@ -105,6 +121,9 @@ def sweep(model_size: int, verbose_only: bool, scale_actor: bool, scale_critic: 
             f">>>>>>>>>>>>>>>> Found interested settings for actor {actor_size} critic {critic_size}! Run interested {len(settings)} settings only. <<<<<<<<<<<<<<<<"
         )
     for setting in settings:
+        default_n_gpus = get_default_n_gpus(max(actor_size, critic_size))
+        n_gpus = setting["n_gpus"]
+
         actor_zero_stage = setting["actor_zero_stage"]
         critic_zero_stage = setting["critic_zero_stage"]
         max_answer_len = setting["max_answer_len"]
@@ -113,7 +132,7 @@ def sweep(model_size: int, verbose_only: bool, scale_actor: bool, scale_critic: 
         # skip if there exists a log file
         # if "force", forcely re-run the experiment
         if not args.force and _parselog(
-            actor_size, critic_size, actor_zero_stage, critic_zero_stage, max_answer_len, gen_bs, offload
+            actor_size, critic_size, actor_zero_stage, critic_zero_stage, max_answer_len, gen_bs, offload, gpu_scale_factor,
         ):
             continue
         if actor_zero_stage == 2:
@@ -121,6 +140,9 @@ def sweep(model_size: int, verbose_only: bool, scale_actor: bool, scale_critic: 
         exp_name = f"rerun-dschat-a{actor_size}-z{actor_zero_stage}-c{critic_size}r7-cz{critic_zero_stage}-seqlen{max_answer_len}-g{gen_bs}"
         if offload:
             exp_name += "-offload"
+        if n_gpus != default_n_gpus:
+            exp_name += f"-x{n_gpus / default_n_gpus:.1f}"
+
         trial_name = "benchmark"
         cmd = (
             f"python3 applications/DeepSpeed-Chat/slurm_launch.py"
@@ -134,6 +156,8 @@ def sweep(model_size: int, verbose_only: bool, scale_actor: bool, scale_critic: 
         )
         if offload:
             cmd += "--offload "
+        if n_gpus != default_n_gpus:
+            cmd += f"--n_gpus {n_gpus} "
         if not verbose_only:
             os.system(cmd)
         else:
@@ -146,7 +170,8 @@ if __name__ == "__main__":
     parser.add_argument("--force", "-f", action="store_true")
     parser.add_argument("--scale_critic", "-c", action="store_true", default=False)
     parser.add_argument("--scale_actor", "-a", action="store_true", default=False)
+    parser.add_argument("--gpu_scale_factor", "-g", type=int, default=[1], nargs='+')
     parser.add_argument("--verbose_only", "-v", action="store_true")
     args = parser.parse_args()
-    for model_size in args.model_size:
-        sweep(model_size, args.verbose_only, args.scale_actor, args.scale_critic)
+    for model_size, gpu_scale_factor in itertools.product(args.model_size, args.gpu_scale_factor):
+        sweep(model_size, args.verbose_only, args.scale_actor, args.scale_critic, gpu_scale_factor)

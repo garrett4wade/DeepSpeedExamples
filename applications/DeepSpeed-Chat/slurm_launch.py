@@ -15,6 +15,7 @@ parser.add_argument("--experiment_name", "-e", type=str, required=True)
 parser.add_argument("--trial_name", "-f", type=str, required=True)
 parser.add_argument("--task_type", "-t", type=str, choices=["sft", "rw", "rlhf"], default="rlhf")
 parser.add_argument("--mode", type=str, default="slurm")
+parser.add_argument("--n_gpus", default=None, type=int)
 parser.add_argument("--actor_size", type=int, choices=[7, 13, 34, 70], default=7)
 parser.add_argument("--critic_size", type=int, choices=[7, 13, 34, 70], default=7)
 parser.add_argument("--actor_zero_stage", type=int, default=3)
@@ -58,16 +59,24 @@ def get_path_from_model_size(model_size: int):
     return model_path
 
 
-def get_ngpus_and_nodelist_from_model_size(model_size: int):
+def get_default_n_gpus(model_size: int):
     if model_size in [7]:
-        return 8, "QH-com42"
+        return 8
     elif model_size == 13:
-        return 16, "QH-com[24-25]"
+        return 16
     elif model_size in [34]:
-        return 32, "QH-com[26-29]"
+        return 32
     elif model_size == 70:
-        return 64, "QH-com[25,42-48]"
+        return 64
 
+def get_nodelist(n_gpus:int):
+    mapping = {
+        8: "QH-com17",
+        16: "QH-com[17-18]",
+        32: "QH-com[17-20]",
+        64: "QH-com[15,17-21,24-25]",
+    }
+    return mapping[n_gpus]
 
 def main(args):
     name_resolve.clear_subtree(name_root=f"{USER_NAMESPACE}/{args.experiment_name}/{args.trial_name}")
@@ -84,7 +93,10 @@ def main(args):
 
     actor_path = get_path_from_model_size(args.actor_size)
     critic_path = get_path_from_model_size(args.critic_size)
-    n_actor_gpus, nodelist = get_ngpus_and_nodelist_from_model_size(max(args.actor_size, args.critic_size))
+    assert args.n_gpus is None or isinstance(args.n_gpus, int), args.n_gpus
+    if args.n_gpus is None:
+        args.n_gpus = get_default_n_gpus(max(args.actor_size, args.critic_size))
+    nodelist = get_nodelist(args.n_gpus)
     assert args.gen_bs == args.train_bs
     assert args.train_bs // n_ppo_mbs > 0
 
@@ -187,7 +199,7 @@ def main(args):
     sched.submit_array(
         args.task_type,
         cmd,
-        count=n_actor_gpus,
+        count=args.n_gpus,
         cpu=4,
         gpu_type="tesla",
         gpu=1,
