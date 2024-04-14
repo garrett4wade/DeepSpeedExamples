@@ -71,10 +71,11 @@ def get_default_n_gpus(model_size: int):
 
 def get_nodelist(n_gpus:int):
     mapping = {
-        8: "QH-com17",
-        16: "QH-com[17-18]",
-        32: "QH-com[17-20]",
-        64: "QH-com[15,17-21,24-25]",
+        8: "QH-com41",
+        16: "QH-com[42-43]",
+        32: "QH-com[44-47]",
+        64: "QH-com[20-22,24-28]",
+        128: "QH-com[20-22,24-28,41-48]",
     }
     return mapping[n_gpus]
 
