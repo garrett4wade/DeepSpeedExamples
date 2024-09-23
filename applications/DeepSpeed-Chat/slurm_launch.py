@@ -74,8 +74,8 @@ def get_nodelist(n_gpus:int):
         8: "QH-com41",
         16: "QH-com[42-43]",
         32: "QH-com[44-47]",
-        64: "QH-com[20-22,24-28]",
-        128: "QH-com[20-22,24-28,41-48]",
+        64: "QH-com[19-22,24-27]",
+        128: "QH-com[19-22,24-27,41-48]",
     }
     return mapping[n_gpus]
 

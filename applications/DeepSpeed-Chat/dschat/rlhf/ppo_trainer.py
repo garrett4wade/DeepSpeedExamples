@@ -70,6 +70,8 @@ class DeepSpeedPPOTrainer():
         self.gamma = 1.0
         self.lam = 0.95
         self.generate_time = 0.0
+        self.inference_time = 0.0
+        self.actor_critic_train_time = 0.0
 
     def _generate_sequence(self, prompts, mask, step):
 
@@ -143,6 +145,7 @@ class DeepSpeedPPOTrainer():
 
     def generate_experience(self, prompts, mask, step):
         self.eval()
+        torch.cuda.synchronize()
         generate_start = time.time()
         seq = self._generate_sequence(prompts, mask, step)
         generate_end = time.time()
@@ -156,6 +159,7 @@ class DeepSpeedPPOTrainer():
 
         pad_token_id = self.tokenizer.pad_token_id
         attention_mask = seq.not_equal(pad_token_id).long()
+        inf_time_start = time.perf_counter()
         with torch.no_grad():
             output = self.actor_model(seq, attention_mask=attention_mask)
             output_ref = self.ref_model(seq, attention_mask=attention_mask)
@@ -172,7 +176,9 @@ class DeepSpeedPPOTrainer():
             logits = logits.to(torch.float)
             logits_ref = logits_ref.to(torch.float)
 
+        torch.cuda.synchronize()
         self.generate_time = generate_end - generate_start
+        self.inference_time = time.perf_counter() - inf_time_start
         torch.cuda.empty_cache()
 
         return {
@@ -204,6 +210,9 @@ class DeepSpeedPPOTrainer():
     def train_rlhf(self, inputs):
         # train the rlhf mode here
         ### process the old outputs
+        torch.cuda.synchronize()
+        train_tik = time.perf_counter()
+
         prompts = inputs['prompts']
         log_probs = inputs['logprobs']
         ref_log_probs = inputs['ref_logprobs']
@@ -298,6 +307,8 @@ class DeepSpeedPPOTrainer():
             self.actor_model.step()
 
         self.critic_model.step()
+        torch.cuda.synchronize()
+        self.actor_critic_train_time = time.perf_counter() - train_tik
         torch.cuda.empty_cache()
 
         return actor_loss, critic_loss

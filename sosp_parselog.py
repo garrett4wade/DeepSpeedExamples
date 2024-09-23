@@ -69,7 +69,7 @@ def _parselog(
     thpt_records = []
     max_mem = 0.0
     gen_time_record = []
-    gen_inf_time_record = []
+    inf_time_record = []
     train_time_record = []
     try:
         with open(logpath, "r", errors="ignore") as f:
@@ -97,17 +97,13 @@ def _parselog(
                 if "pure generate time" in line:
                     gen_time = float(line.split("pure generate time ")[1].split("s")[0])
                     gen_time_record.append(gen_time)
-                if "Generation => Latency: " in line:
-                    t = float(line.split("Generation => Latency: ")[1].split("s,")[0])
-                    gen_inf_time_record.append(t)
-                if "Training   => Latency: " in line:
-                    train_time = float(line.split("Training   => Latency: ")[1].split("s,")[0])
-                    train_time_record.append(train_time)
+                    inf_time = float(line.split(", inf time ")[1].split("s")[0])
+                    inf_time_record.append(inf_time)
+                    train_time = float(line.split(", train time ")[1].split("s")[0])
+                    train_time_record.append(train_time * 4)
     except FileNotFoundError:
         return False
     time_records = time_records[2:]
-    train_time_record = train_time_record[2:]
-    gen_inf_time_record = gen_inf_time_record[2:]
     if not oom:
         if len(time_records) == 0 or len(tflops_records) == 0 or len(thpt_records) == 0 or max_mem == 0.0:
             return False
@@ -119,13 +115,13 @@ def _parselog(
         n_time = len(time_records)
         avg_train_time = np.mean(train_time_record)
         avg_gen_time = np.mean(gen_time_record)
-        assert len(train_time_record) == n_time == len(gen_inf_time_record)
+        avg_inf_time = np.mean(inf_time_record)
         avg_tflops = np.mean(tflops_records[1:])
         thpt = np.mean(thpt_records[1:])
     else:
         avg_time = float("inf")
         avg_train_time = float("inf")
-        avg_gen_time = avg_actor_train_time = avg_critic_train_time = float("inf")
+        avg_gen_time = avg_actor_train_time = avg_critic_train_time = avg_inf_time = float("inf")
         n_time = 0
         cil = cih = float("nan")
         min_time = float("nan")
@@ -152,6 +148,11 @@ def _parselog(
         avg_gt=avg_gen_time,
         avg_tt=avg_train_time,
         avg_it=avg_time - avg_train_time - avg_gen_time,
+        avg_att=avg_train_time / (actor_size + critic_size) * actor_size,
+        avg_ctt=avg_train_time / (actor_size + critic_size) * critic_size,
+        avg_rfit=avg_inf_time / (actor_size + critic_size * 2) * actor_size,
+        avg_cit=avg_inf_time / (actor_size + critic_size * 2) * critic_size,
+        avg_rit=avg_inf_time / (actor_size + critic_size * 2) * critic_size,
         n=n_time,
         # OOM=oom,
         # Throughput=thpt,

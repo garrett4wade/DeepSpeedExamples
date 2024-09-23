@@ -675,7 +675,7 @@ def main():
                 print_rank_0(
                     f'Epoch: {epoch} | Step: {step} | PPO Epoch: {ppo_ep+1} | Actor Loss: {actor_loss_sum/inner_iter} | Critic Loss: {critic_loss_sum/inner_iter} | Unsupervised Loss: {unsup_loss_sum/inner_iter}',
                     args.global_rank)
-                print(f">>>>> pure generate time {trainer.generate_time:.2f}s")
+                print(f">>>>> pure generate time {trainer.generate_time:.2f}s, inf time {trainer.inference_time:.2f}s, train time {trainer.actor_critic_train_time:.2f}s")
                 print_throughput_step3(rlhf_engine.actor.module,
                                        rlhf_engine.critic, args, e2e_time,
                                        generate_time, training_time,
