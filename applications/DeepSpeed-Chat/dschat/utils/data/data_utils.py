@@ -132,13 +132,14 @@ def get_raw_dataset_split_index(local_rank,
 class PromptDataset(Dataset):
 
     def __init__(self, prompt_dataset, chosen_dataset, reject_dataset,
-                 pad_token_id, train_phase) -> None:
+                 pad_token_id, train_phase, max_prompt_len) -> None:
         super().__init__()
         self.prompt_dataset = prompt_dataset
         self.chosen_dataset = chosen_dataset
         self.reject_dataset = reject_dataset
         self.pad_token_id = pad_token_id
         self.train_phase = train_phase
+        self.max_prompt_len = max_prompt_len
 
     def __len__(self):
         length = len(self.chosen_dataset)
@@ -161,7 +162,13 @@ class PromptDataset(Dataset):
             return self.chosen_dataset[idx]["input_ids"], self.chosen_dataset[idx]["attention_mask"], \
                 self.reject_dataset[idx]["input_ids"], self.reject_dataset[idx]["attention_mask"]
         elif self.train_phase == 3:
-            return self.prompt_dataset[idx]["input_ids"],self.prompt_dataset[idx]["attention_mask"], \
+            x = self.prompt_dataset[idx]["input_ids"]
+            x = torch.nn.functional.pad(x, (self.max_prompt_len - x.size()[-1], 0), value=x[-1])
+            x[x == self.pad_token_id] = x[x!=self.pad_token_id][-1]
+            self.prompt_dataset[idx]["attention_mask"][:] = 1
+            y = self.prompt_dataset[idx]["attention_mask"]
+            y = torch.nn.functional.pad(y, (self.max_prompt_len - y.size()[-1], 0), value=1)
+            return x,y, \
                 self.pad_token_id
 
 
@@ -240,7 +247,7 @@ def create_dataset_split(current_dataset, raw_dataset, train_phase, tokenizer,
               f'for {train_phase=} size={len(prompt_dataset)} {filtered=}')
 
     return PromptDataset(prompt_dataset, chosen_dataset, reject_dataset,
-                         tokenizer.pad_token_id, train_phase)
+                         tokenizer.pad_token_id, train_phase, max_seq_len)
 
 
 def create_dataset(local_rank, dataset_name, data_split, output_path,
@@ -302,7 +309,8 @@ def create_prompt_dataset(local_rank,
         get_accelerator().current_device_name())
     torch.distributed.all_reduce(buf_create_cache)
 
-    if local_rank <= 0 and (buf_create_cache.item() != 0 or reload):
+    # if local_rank <= 0 and (buf_create_cache.item() != 0 or reload):
+    if True:
         print(f'Creating prompt dataset {data_path}, {reload=}')
         if len(data_path) == 1:  # Single dataset.
             train_dataset, eval_dataset = create_dataset(
@@ -377,10 +385,10 @@ def create_prompt_dataset(local_rank,
                 eval_dataset = ConcatDataset([eval_dataset, sft_eval_dataset])
                 shuffle_idx = get_shuffle_idx(seed, len(eval_dataset))
                 eval_dataset = Subset(eval_dataset, shuffle_idx.tolist())
-        torch.save(train_dataset, train_fname)
-        torch.save(eval_dataset, eval_fname)
+        # torch.save(train_dataset, train_fname)
+        # torch.save(eval_dataset, eval_fname)
     torch.distributed.barrier()
-    return torch.load(train_fname), torch.load(eval_fname)
+    return train_dataset, eval_dataset
 
 
 class DataCollatorReward:

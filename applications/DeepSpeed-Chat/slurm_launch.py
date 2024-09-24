@@ -142,46 +142,20 @@ def main(args):
         ]
     elif args.task_type == "rlhf":
         flags = [
-            "--data_path local/jsonfile",
-            "--data_split 0,0,10",
             f"--actor_model_name_or_path {actor_path}",
             f"--critic_model_name_or_path {critic_path}",
-            "--num_padding_at_beginning 0",
             f"--per_device_generation_batch_size {args.gen_bs}",
             f"--per_device_training_batch_size {args.train_bs // n_ppo_mbs}",
             f"--generation_batches 1",
-            "--ppo_epochs 1",
             f"--max_answer_seq_len {max_answer_len}",
             f"--max_prompt_seq_len {max_prompt_len}",
-            "--actor_learning_rate 5e-6",
-            "--critic_learning_rate 5e-6",
-            "--num_train_epochs 1",
-            "--lr_scheduler_type cosine",
             "--gradient_accumulation_steps 1",
-            "--num_warmup_steps 100",
-            "--seed 1234",
-            f"--actor_zero_stage {args.actor_zero_stage}",
-            f"--critic_zero_stage {args.critic_zero_stage}",
-            "--actor_gradient_checkpointing",
-            "--critic_gradient_checkpointing",
-            "--enable_test_mode",
-            "--test_stop_step 20",
         ]
-        if args.use_hybrid_engine:
-            flags.append("--enable_hybrid_engine")
         if args.offload and "--offload" not in flags:
             flags.append("--offload")
-        if args.offload_ref and "--offload_reference_model" not in flags:
-            flags.append("--offload_reference_model")
         flags.append(f"--inference_tp_size {args.inference_tp_size}")
         flags.append(f"--tp_gather_partition_size {args.tp_gather_partition_size}")
-        if args.lora:
-            assert args.lora_dim > 0
-            flags.append(f"--actor_lora_dim {args.lora_dim}")
-            flags.append(f"--actor_lora_module_name .self_attn.")
-            flags.append(f"--critic_lora_dim {args.lora_dim}")
-            flags.append(f"--critic_lora_module_name .self_attn.")
-            flags.append(f"--only_optimize_lora")
+
     cmd = " ".join([cmd] + flags)
 
     log_path = f"/lustre/aigc/llm/logs/fw/{args.experiment_name}/{args.trial_name}/{args.task_type}-0"

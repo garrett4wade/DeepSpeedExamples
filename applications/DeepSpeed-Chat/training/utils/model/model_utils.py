@@ -33,7 +33,8 @@ def create_hf_model(model_class,
         dschf = None
     # if rlhf_training:
     # the weight loading is handled by create critic model
-    model = model_class.from_config(model_config)
+    with torch.device("cuda"):
+        model = model_class.from_config(model_config)
     # else:
     #     model = model_class.from_pretrained(
     #         model_name_or_path,

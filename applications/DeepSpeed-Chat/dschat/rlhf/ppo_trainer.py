@@ -85,9 +85,10 @@ class DeepSpeedPPOTrainer():
         else:
             kwargs = dict()
         kwargs.update(dict(min_length=max_min_length,
-            top_p=0.9,
-            top_k=2048,
-            temperature=1.2,
+                           use_cache=True,
+            # top_p=0.9,
+            # top_k=2048,
+            # temperature=1.2,
             # do_sample=True,
             ))
 
