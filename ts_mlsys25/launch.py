@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import *
+import argparse
 
-from setting import IS_FRL, MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd
+from setting import IS_FRL, MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd, run_interruptable_cmd_on_js_h100
+from parse_log import _parselog
 
 
 def build_cmd(
@@ -12,7 +14,7 @@ def build_cmd(
     scale_both: bool,
     rollout_n_mbs: int,
     train_n_mbs: int,
-    offload: bool = True,
+    offload: bool = False,
     n_ppo_mbs=8,
 ):
     """
@@ -37,8 +39,6 @@ def build_cmd(
         logfile = Path("/mnt/bs_fs/dschat-logs") / exp_name / trial_name / "output.log"
 
     w = MODEL_SIZE_TO_N_NODES_BAISC[model_size] * 8
-    if scale_both:
-        w *= 2
 
     flags = get_common_flags(model_size, critic_size, offload)
     flags += [
@@ -59,20 +59,45 @@ def build_cmd(
     return " ".join(flags), logfile
 
 
-def main():
-    cmd_logfile = build_cmd(
-        model_size=7,
-        bs=256,
-        ctx=2048,
-        prompt_len=1024,
-        rollout_n_mbs=8,
-        train_n_mbs=1,
-        scale_both=False,
-        offload=False,
-    )
-    if cmd_logfile is not None:
-        run_debug_cmd(*cmd_logfile)
+def main(args):
+    n_gpus = MODEL_SIZE_TO_N_NODES_BAISC[args.model_size] * 8
+    max_rollout_n_mbs = 256 // n_gpus
+    max_train_n_mbs = 256 // n_gpus // 8
+    for nr, nt in itertools.product(range(1,max_rollout_n_mbs +1), range(1,max_train_n_mbs+1)):
+        cmd_logfile = build_cmd(
+            model_size=args.model_size,
+            bs=256,
+            ctx=2048,
+            prompt_len=1024,
+            rollout_n_mbs=nr,
+            train_n_mbs=nt,
+            scale_both=args.scale_both,
+            offload=False,
+        )
+        if cmd_logfile is not None:
+            if args.debug:
+                run_debug_cmd(*cmd_logfile)
+            else:
+                run_interruptable_cmd_on_js_h100(cmd_logfile[0], args.nodelist, cmd_logfile[1])
+            
+            parse_success, oom = _parselog(
+                actor_size=args.model_size,
+                critic_size=7 if not args.scale_both else args.model_size,
+                bs=256,
+                ctx=2048,
+                prompt_len=1024,
+                nr=nr,
+                nt=nt,
+            )
+            if parse_success and not oom:
+                break
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_size", "-x", type=int, required=True)
+    parser.add_argument("--scale_both", "-s", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--nodelist", type=str, default=None)
+    args = parser.parse_args()
+    main(args)

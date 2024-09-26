@@ -100,7 +100,7 @@ def get_raw_dataset_split_index(local_rank,
                                 data_split,
                                 split_index,
                                 data_size,
-                                rebuild=False):
+                                rebuild=True):
     index_file_name = f"{output_path}/{dataset_name}_seed{seed}_{split_name}_{data_split}_{split_index}.npy"
     # reindex each time when using local jsonfile since it's more likely to get modified
     if rebuild or (not os.path.isfile(index_file_name)) or (dataset_name
@@ -125,7 +125,7 @@ def get_raw_dataset_split_index(local_rank,
             np.save(shuffle_idx_split_file_name,
                     shuffle_idx_split,
                     allow_pickle=True)
-    index = np.load(index_file_name, allow_pickle=True)
+    # index = np.load(index_file_name, allow_pickle=True)
     return index.tolist()
 
 

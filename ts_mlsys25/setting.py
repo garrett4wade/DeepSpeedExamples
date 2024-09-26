@@ -20,7 +20,7 @@ else:
         70: "/mnt/bs_fs/models/CodeLlama-70b-hf/",
     }
 
-MODEL_SIZE_TO_N_NODES_BAISC = {7: 1, 13: 2, 34: 4, 70: 8}
+MODEL_SIZE_TO_N_NODES_BAISC = {7: 2, 13: 4, 34: 8, 70: 16}
 MODEL_SIZE_TO_HE_TP_SIZE = {7: 1, 13: 2, 34: 4, 70: 8}
 
 
@@ -46,7 +46,7 @@ def get_common_flags(actor_size, critic_size, offload: bool):
 
 
 def log_stream_cmd(cmd, logfile):
-    return f"stdbuf -oL {cmd} | tee -a {logfile}"
+    return f"stdbuf -oL {cmd} 2>&1 | tee -a {logfile}"
 
 
 def run_debug_cmd(cmd, logfile, verbose=True):
@@ -75,9 +75,10 @@ def run_debug_cmd(cmd, logfile, verbose=True):
 
 
 def run_interruptable_cmd_on_js_h100(cmd, nodelist, logfile, verbose=True):
+    assert nodelist is not None
     os.makedirs(os.path.dirname(logfile), exist_ok=True)
     os.system(f"touch {logfile}")
-    cmd = f"/home/fw/openrlhf-bundle/rayrun {nodelist} {cmd}"
+    cmd = f"/home/fw/dschat-bundle/rayrun {nodelist} {cmd}"
     if verbose:
         print(" Running command ".center(100, "=") + f"\n{cmd}\n" + "=" * 100 + "\n")
     try:

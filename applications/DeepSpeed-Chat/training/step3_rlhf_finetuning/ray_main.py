@@ -520,6 +520,7 @@ class DSChatRayRemoteWorker:
     def run_dschat(self, args):
         device = torch.device("cuda")
         deepspeed.init_distributed(auto_mpi_discovery=False)
+        os.environ['LOCAL_RANK'] = str(0)
 
         args.global_rank = torch.distributed.get_rank()
 
@@ -724,7 +725,7 @@ class DSChatRayRemoteWorker:
                 if not actor_overflow and not critic_overflow:
                     non_overflow_step_count += 1
 
-                if valid_train_cnt >= 10:
+                if valid_train_cnt >= 3:
                     exit(0)
 
                 # if args.enable_test_mode and non_overflow_step_count == args.test_stop_step:
