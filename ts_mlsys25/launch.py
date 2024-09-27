@@ -1,8 +1,11 @@
 from pathlib import Path
 from typing import *
 import argparse
+import itertools
+import re
+import os
 
-from setting import IS_FRL, MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd, run_interruptable_cmd_on_js_h100
+from setting import N_NODES_TO_BATCH_SIZE, CTX, PROMPT_LEN, IS_FRL, MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd, run_interruptable_cmd_on_js_h100
 from parse_log import _parselog
 
 
@@ -58,34 +61,72 @@ def build_cmd(
         return None
     return " ".join(flags), logfile
 
+def extract_node_integers(input_string):
+    # Regular expression to match the pattern
+    pattern = r'(\w+)\[(\d+)-(\d+)\]'
+    
+    # Try to match the pattern in the input string
+    match = re.match(pattern, input_string)
+    
+    if match:
+        # Extract the base name and the range
+        base_name = match.group(1)
+        start = int(match.group(2))
+        end = int(match.group(3))
+        
+        return start, end
+    else:
+        raise ValueError('Invalid input string')
 
 def main(args):
     n_gpus = MODEL_SIZE_TO_N_NODES_BAISC[args.model_size] * 8
-    max_rollout_n_mbs = 256 // n_gpus
-    max_train_n_mbs = 256 // n_gpus // 8
-    for nr, nt in itertools.product(range(1,max_rollout_n_mbs +1), range(1,max_train_n_mbs+1)):
+    bs = N_NODES_TO_BATCH_SIZE[MODEL_SIZE_TO_N_NODES_BAISC[args.model_size]]
+    max_rollout_n_mbs = bs // n_gpus
+    max_train_n_mbs = bs // n_gpus // 8
+    for nt, nr in itertools.product(range(1,max_train_n_mbs+1), range(1,max_rollout_n_mbs +1)):
         cmd_logfile = build_cmd(
             model_size=args.model_size,
-            bs=256,
-            ctx=2048,
-            prompt_len=1024,
+            bs=bs,
+            ctx=CTX,
+            prompt_len=PROMPT_LEN,
             rollout_n_mbs=nr,
             train_n_mbs=nt,
             scale_both=args.scale_both,
             offload=False,
         )
         if cmd_logfile is not None:
+            parse_success, oom = _parselog(
+                actor_size=args.model_size,
+                critic_size=7 if not args.scale_both else args.model_size,
+                bs=bs,
+                ctx=CTX,
+                prompt_len=PROMPT_LEN,
+                nr=nr,
+                nt=nt,
+            )
+            if parse_success:
+                if not oom:
+                    print(f">>>>> Find existing successful logfile: {cmd_logfile[1]}")
+                    break
+                else:
+                    print(f">>>>> Find existing OOM logfile, skip it, continue searching")
+                    continue
+
+            s, e = extract_node_integers(args.nodelist)
+            assert e -s + 1 == MODEL_SIZE_TO_N_NODES_BAISC[size]
+            os.system(f"python3 /mnt/bs_fs/rayc.py stop -s {s} -e {e}")
             if args.debug:
                 run_debug_cmd(*cmd_logfile)
             else:
                 run_interruptable_cmd_on_js_h100(cmd_logfile[0], args.nodelist, cmd_logfile[1])
+            os.system(f"python3 /mnt/bs_fs/rayc.py stop -s {s} -e {e}")
             
             parse_success, oom = _parselog(
                 actor_size=args.model_size,
                 critic_size=7 if not args.scale_both else args.model_size,
-                bs=256,
-                ctx=2048,
-                prompt_len=1024,
+                bs=bs,
+                ctx=CTX,
+                prompt_len=PROMPT_LEN,
                 nr=nr,
                 nt=nt,
             )

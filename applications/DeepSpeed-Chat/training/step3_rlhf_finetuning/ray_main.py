@@ -192,7 +192,7 @@ def parse_args():
     parser.add_argument(
         "--num_train_epochs",
         type=int,
-        default=1,
+        default=10,
         help="Total number of training epochs to perform.",
     )
     parser.add_argument(
@@ -726,6 +726,10 @@ class DSChatRayRemoteWorker:
                     non_overflow_step_count += 1
 
                 if valid_train_cnt >= 3:
+                    if torch.distributed.get_rank() == 0:
+                        print("=" * 100)
+                        print(f" Benchmarking finishes after {_step_cnt} steps ".center(100, "="))
+                        print("=" * 100)
                     exit(0)
 
                 # if args.enable_test_mode and non_overflow_step_count == args.test_stop_step:
@@ -797,5 +801,12 @@ def main(args):
 
 
 if __name__ == "__main__":
+    envs = {"TRANSFORMERS_OFFLINE": "1",
+    "PYTORCH_KERNEL_CACHE_PATH": "/mnt/bs_fs/fw/.cache/pytorch-kernels/",
+    "TRITON_CACHE_DIR": "/mnt/bs_fs/fw/.cache/triton/",
+    "TOKENIZERS_PARALLELISM": "true",
+    "TORCH_EXTENSIONS_DIR": "/mnt/bs_fs/fw/.cache/torch-ext/",}
+    for k, v in envs.items():
+        os.environ[k] = v
     args = parse_args()
     main(args)

@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import *
-from setting import MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd, run_interruptable_cmd_on_js_h100
+from setting import MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd, run_interruptable_cmd_on_js_h100, N_NODES_TO_BATCH_SIZE, CTX, PROMPT_LEN
 from collections import defaultdict
 import numpy as np
 import pandas as pd
@@ -72,6 +72,8 @@ def _parselog(
                     time_records.append(step_time)
                     thpt = float(line.split(", Samples/sec: ")[1].split(",")[0])
                     thpt_records.append(thpt)
+                if "Benchmarking finishes" in line:
+                    oom = False
     except FileNotFoundError:
         return parse_success, oom
 
@@ -119,9 +121,9 @@ def main(args):
     parse_success, oom = _parselog(
         actor_size=args.model_size,
         critic_size=7 if not args.scale_both else args.model_size,
-        bs=256,
-        ctx=2048,
-        prompt_len=1024,
+        bs=N_NODES_TO_BATCH_SIZE[MODEL_SIZE_TO_N_NODES_BAISC[args.model_size]],
+        ctx=CTX,
+        prompt_len=PROMPT_LEN,
         nr=1,
         nt=1,
     )

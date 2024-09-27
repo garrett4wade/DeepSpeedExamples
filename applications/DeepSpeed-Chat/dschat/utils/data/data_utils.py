@@ -103,30 +103,32 @@ def get_raw_dataset_split_index(local_rank,
                                 rebuild=True):
     index_file_name = f"{output_path}/{dataset_name}_seed{seed}_{split_name}_{data_split}_{split_index}.npy"
     # reindex each time when using local jsonfile since it's more likely to get modified
-    if rebuild or (not os.path.isfile(index_file_name)) or (dataset_name
-                                                            == 'jsonfile'):
-        splits = [float(s) for s in data_split.split(',')]
-        splits_sum = sum(splits)
-        splits = [split / splits_sum for split in splits]
-        splits_index = [0]
-        for index, split in enumerate(splits):
-            splits_index.append(splits_index[index] +
-                                int(round(split * float(data_size))))
-        diff = splits_index[-1] - data_size
-        for index in range(1, len(splits_index)):
-            splits_index[index] -= diff
-        assert splits_index[-1] == data_size
+    # if rebuild or (not os.path.isfile(index_file_name)) or (dataset_name
+    #                                                         == 'jsonfile'):
+    splits = [float(s) for s in data_split.split(',')]
+    splits_sum = sum(splits)
+    splits = [split / splits_sum for split in splits]
+    splits_index = [0]
+    for index, split in enumerate(splits):
+        splits_index.append(splits_index[index] +
+                            int(round(split * float(data_size))))
+    diff = splits_index[-1] - data_size
+    for index in range(1, len(splits_index)):
+        splits_index[index] -= diff
+    assert splits_index[-1] == data_size
 
-        shuffle_idx = get_shuffle_idx(seed, data_size)
-        for split_i in range(len(splits)):
-            shuffle_idx_split_file_name = f"{output_path}/{dataset_name}_seed{seed}_{split_name}_{data_split}_{split_i}.npy"
-            shuffle_idx_split = shuffle_idx[
-                splits_index[split_i]:splits_index[split_i + 1]]
-            np.save(shuffle_idx_split_file_name,
-                    shuffle_idx_split,
-                    allow_pickle=True)
+    shuffle_idx = get_shuffle_idx(seed, data_size)
+    for split_i in range(len(splits)):
+        shuffle_idx_split_file_name = f"{output_path}/{dataset_name}_seed{seed}_{split_name}_{data_split}_{split_i}.npy"
+        shuffle_idx_split = shuffle_idx[
+            splits_index[split_i]:splits_index[split_i + 1]]
+        if split_i == split_index:
+            return shuffle_idx_split.tolist()
+            # np.save(shuffle_idx_split_file_name,
+            #         shuffle_idx_split,
+            #         allow_pickle=True)
     # index = np.load(index_file_name, allow_pickle=True)
-    return index.tolist()
+    # return index.tolist()
 
 
 class PromptDataset(Dataset):
@@ -289,10 +291,11 @@ def create_prompt_dataset(local_rank,
                           max_seq_len,
                           end_of_conversation_token="<|endoftext|>",
                           sft_only_data_path=[],
-                          reload=False):
+                          reload=True):
     """
     Creates the prompt dataset
     """
+    reload = True
     os.makedirs(output_path, exist_ok=True)
     fname = "_".join(data_path)
     sft_cache_key = "_".join(sft_only_data_path)
@@ -455,7 +458,7 @@ def get_unsupervised_data(args, tokenizer):
         batched=True,
         num_proc=args.preprocessing_num_workers,
         remove_columns=column_names,
-        load_from_cache_file=True,
+        load_from_cache_file=False,
         desc="Running tokenizer on dataset",
     )
 

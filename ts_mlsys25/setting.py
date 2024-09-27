@@ -6,22 +6,25 @@ import socket
 import subprocess
 from pathlib import Path
 from typing import *
+import transformers
 
-IS_FRL = socket.gethostname().startswith("frl")
-if IS_FRL:
-    MODEL_SIZE_TO_PATH = {
-        7: "/lustre/public/pretrained_model_weights/llama2/Llama-2-7b-hf",
-    }
-else:
-    MODEL_SIZE_TO_PATH = {
-        7: "/mnt/bs_fs/models/CodeLlama-7b-hf/",
-        13: "/mnt/bs_fs/models/CodeLlama-13b-hf/",
-        34: "/mnt/bs_fs/models/CodeLlama-34b-hf/",
-        70: "/mnt/bs_fs/models/CodeLlama-70b-hf/",
-    }
+MODEL_SIZE_TO_PATH = {
+    7: "/mnt/bs_fs/models/llama-3-8b/",
+    13: "/mnt/bs_fs/models/llama-3-13b/",
+    34: "/mnt/bs_fs/models/llama-3-34b/",
+    70: "/mnt/bs_fs/models/llama-3-70b/",
+}
+
+for v in MODEL_SIZE_TO_PATH.values():
+    _ = transformers.AutoConfig.from_pretrained(v)
+    _ = transformers.AutoTokenizer.from_pretrained(v)
 
 MODEL_SIZE_TO_N_NODES_BAISC = {7: 2, 13: 4, 34: 8, 70: 16}
 MODEL_SIZE_TO_HE_TP_SIZE = {7: 1, 13: 2, 34: 4, 70: 8}
+N_NODES_TO_BATCH_SIZE = {2: 512, 4: 1024, 8: 2048, 16: 4096}
+
+CTX = 2048
+PROMPT_LEN = 1024
 
 
 def get_common_flags(actor_size, critic_size, offload: bool):
