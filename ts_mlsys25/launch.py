@@ -4,8 +4,9 @@ import argparse
 import itertools
 import re
 import os
+import time
 
-from setting import N_NODES_TO_BATCH_SIZE, CTX, PROMPT_LEN, IS_FRL, MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd, run_interruptable_cmd_on_js_h100
+from setting import N_NODES_TO_BATCH_SIZE, CTX, PROMPT_LEN, MODEL_SIZE_TO_N_NODES_BAISC, get_common_flags, run_debug_cmd, run_interruptable_cmd_on_js_h100
 from parse_log import _parselog
 
 
@@ -31,15 +32,8 @@ def build_cmd(
     critic_size = model_size if scale_both else 7
     exp_name = "mlsys"
     trial_name = f"a{model_size}c{critic_size}b{bs}ct{ctx}p{prompt_len}nr{rollout_n_mbs}nt{train_n_mbs}"
-    if IS_FRL:
-        logfile = (
-            Path("/lustre/fw/mlsys25-dschat-logs")
-            / exp_name
-            / trial_name
-            / "output.log"
-        )
-    else:
-        logfile = Path("/mnt/bs_fs/dschat-logs") / exp_name / trial_name / "output.log"
+
+    logfile = Path("/mnt/bs_fs/dschat-logs") / exp_name / trial_name / "output.log"
 
     w = MODEL_SIZE_TO_N_NODES_BAISC[model_size] * 8
 
@@ -79,66 +73,63 @@ def extract_node_integers(input_string):
         raise ValueError('Invalid input string')
 
 def main(args):
-    n_gpus = MODEL_SIZE_TO_N_NODES_BAISC[args.model_size] * 8
-    bs = N_NODES_TO_BATCH_SIZE[MODEL_SIZE_TO_N_NODES_BAISC[args.model_size]]
-    max_rollout_n_mbs = bs // n_gpus
-    max_train_n_mbs = bs // n_gpus // 8
-    for nt, nr in itertools.product(range(1,max_train_n_mbs+1), range(1,max_rollout_n_mbs +1)):
-        cmd_logfile = build_cmd(
-            model_size=args.model_size,
-            bs=bs,
-            ctx=CTX,
-            prompt_len=PROMPT_LEN,
-            rollout_n_mbs=nr,
-            train_n_mbs=nt,
-            scale_both=args.scale_both,
-            offload=False,
-        )
-        if cmd_logfile is not None:
-            parse_success, oom = _parselog(
-                actor_size=args.model_size,
-                critic_size=7 if not args.scale_both else args.model_size,
+    for size in args.model_size:
+        n_gpus = MODEL_SIZE_TO_N_NODES_BAISC[size] * 8
+        bs = N_NODES_TO_BATCH_SIZE[MODEL_SIZE_TO_N_NODES_BAISC[size]]
+        for nt, nr in [(4,16),(4,32)]:
+            cmd_logfile = build_cmd(
+                model_size=size,
                 bs=bs,
                 ctx=CTX,
                 prompt_len=PROMPT_LEN,
-                nr=nr,
-                nt=nt,
+                rollout_n_mbs=nr,
+                train_n_mbs=nt,
+                scale_both=args.scale_both,
+                offload=False,
             )
-            if parse_success:
-                if not oom:
-                    print(f">>>>> Find existing successful logfile: {cmd_logfile[1]}")
-                    break
-                else:
-                    print(f">>>>> Find existing OOM logfile, skip it, continue searching")
-                    continue
+            if cmd_logfile is not None:
+                parse_success, oom = _parselog(
+                    actor_size=size,
+                    critic_size=7 if not args.scale_both else size,
+                    bs=bs,
+                    ctx=CTX,
+                    prompt_len=PROMPT_LEN,
+                    nr=nr,
+                    nt=nt,
+                )
+                if parse_success:
+                    if not oom:
+                        print(f">>>>> Find existing successful logfile: {cmd_logfile[1]}")
+                        break
+                    else:
+                        print(f">>>>> Find existing OOM logfile, skip it, continue searching")
+                        continue
 
-            s, e = extract_node_integers(args.nodelist)
-            assert e -s + 1 == MODEL_SIZE_TO_N_NODES_BAISC[size]
-            os.system(f"python3 /mnt/bs_fs/rayc.py stop -s {s} -e {e}")
-            if args.debug:
-                run_debug_cmd(*cmd_logfile)
-            else:
+                s, e = extract_node_integers(args.nodelist)
+                assert e -s + 1 == MODEL_SIZE_TO_N_NODES_BAISC[size]
+                os.system(f"python3 /mnt/bs_fs/rayc.py stop -s {s} -e {e}")
+                time.sleep(10)
                 run_interruptable_cmd_on_js_h100(cmd_logfile[0], args.nodelist, cmd_logfile[1])
-            os.system(f"python3 /mnt/bs_fs/rayc.py stop -s {s} -e {e}")
-            
-            parse_success, oom = _parselog(
-                actor_size=args.model_size,
-                critic_size=7 if not args.scale_both else args.model_size,
-                bs=bs,
-                ctx=CTX,
-                prompt_len=PROMPT_LEN,
-                nr=nr,
-                nt=nt,
-            )
-            if parse_success and not oom:
-                break
+                os.system(f"python3 /mnt/bs_fs/rayc.py stop -s {s} -e {e}")
+                time.sleep(10)
+                
+                parse_success, oom = _parselog(
+                    actor_size=size,
+                    critic_size=7 if not args.scale_both else size,
+                    bs=bs,
+                    ctx=CTX,
+                    prompt_len=PROMPT_LEN,
+                    nr=nr,
+                    nt=nt,
+                )
+                if parse_success and not oom:
+                    break
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_size", "-x", type=int, required=True)
+    parser.add_argument("--model_size", "-x", type=int, required=True, nargs='+')
     parser.add_argument("--scale_both", "-s", action="store_true")
-    parser.add_argument("--debug", action="store_true")
     parser.add_argument("--nodelist", type=str, default=None)
     args = parser.parse_args()
     main(args)

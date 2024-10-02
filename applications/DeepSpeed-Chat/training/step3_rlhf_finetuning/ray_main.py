@@ -550,9 +550,24 @@ class DSChatRayRemoteWorker:
             add_special_tokens=additional_special_tokens,
         )
 
-        prompt_train_dataloader, unsupervised_train_dataloader, num_total_iters = (
-            create_datasets(args=args, tokenizer=tokenizer, train_phase=3)
+        vocab_size = tokenizer.vocab_size
+        prompt_train_dataloader = [
+            dict(prompt=torch.randint(0, vocab_size, (args.per_device_generation_batch_size, args.max_prompt_seq_len), dtype=torch.long),
+            prompt_att_mask=torch.ones(args.per_device_generation_batch_size, args.max_prompt_seq_len, dtype=torch.bool))
+        ]
+        prompt_train_dataloader = prompt_train_dataloader * 500
+        unsupervised_train_dataloader = [None for _ in range(500)]
+        num_update_steps_per_epoch = (
+            min(len(prompt_train_dataloader), len(unsupervised_train_dataloader))
+            * (args.per_device_generation_batch_size / args.per_device_training_batch_size)
+            * args.ppo_epochs
+            / args.gradient_accumulation_steps
         )
+        num_total_iters = int(args.num_train_epochs * num_update_steps_per_epoch)
+
+        # prompt_train_dataloader, unsupervised_train_dataloader, num_total_iters = (
+        #     create_datasets(args=args, tokenizer=tokenizer, train_phase=3)
+        # )
 
         # RLHF engine is responsible for creating models, loading checkpoints, ds-initialize models/optims/lr-schedulers
         rlhf_engine = DeepSpeedRLHFEngine(
@@ -728,9 +743,9 @@ class DSChatRayRemoteWorker:
                 if valid_train_cnt >= 3:
                     if torch.distributed.get_rank() == 0:
                         print("=" * 100)
-                        print(f" Benchmarking finishes after {_step_cnt} steps ".center(100, "="))
+                        print(f" Benchmarking finishes after {valid_train_cnt} steps ".center(100, "="))
                         print("=" * 100)
-                    exit(0)
+                    return
 
                 # if args.enable_test_mode and non_overflow_step_count == args.test_stop_step:
                 #     break
@@ -772,12 +787,16 @@ def main(args):
             "Cannot schedule Ray jobs to nodes with heterogeneous numbers of GPUs."
         )
     n_gpus_per_node = int(total_gpus // len(available_nodes))
+    assert n_gpus_per_node == 8
     if total_gpus < count:
         raise RuntimeError(
             "Available GPUs is smaller than the number of scheduled GPU workers."
         )
 
     ddp_addr = f"{socket.gethostbyname(socket.gethostname())}:{find_free_port()}"
+    self_node = f"node:{socket.gethostbyname(socket.gethostname())}"
+    assert self_node in available_nodes, (self_node, available_nodes)
+    available_nodes = [self_node] + [n for n in available_nodes if n != self_node]
     jobs = []
     for node_idx, i in enumerate(range(0, count, n_gpus_per_node)):
         for _idx in range(n_gpus_per_node):
@@ -792,20 +811,35 @@ def main(args):
                 ddp_addr,
             )
             jobs.append(job)
-    ray.get([job.init_process_group.remote() for job in jobs])
+            print(ray.available_resources(), flush=True)
+    print("init process group...", flush=True)
+    init_jobs = [job.init_process_group.remote() for job in jobs[:7]]
+    time.sleep(2)
+    init_jobs += [job.init_process_group.remote() for job in jobs[7:]]
+    ray.get(init_jobs)
     try:
         ray.get([job.run_dschat.remote(args) for job in jobs])
-    except KeyboardInterrupt:
+    finally:
+        for job in jobs:
+            ray.kill(job)
         print("Shutting down...")
         ray.shutdown()
 
 
 if __name__ == "__main__":
     envs = {"TRANSFORMERS_OFFLINE": "1",
-    "PYTORCH_KERNEL_CACHE_PATH": "/mnt/bs_fs/fw/.cache/pytorch-kernels/",
-    "TRITON_CACHE_DIR": "/mnt/bs_fs/fw/.cache/triton/",
+    # "PYTORCH_KERNEL_CACHE_PATH": "/mnt/bs_fs/fw/.cache/pytorch-kernels/",
+    # "TRITON_CACHE_DIR": "/mnt/bs_fs/fw/.cache/triton/",
     "TOKENIZERS_PARALLELISM": "true",
-    "TORCH_EXTENSIONS_DIR": "/mnt/bs_fs/fw/.cache/torch-ext/",}
+    # "TORCH_EXTENSIONS_DIR": "/mnt/bs_fs/fw/.cache/torch-ext/",
+    }
+    envs['NCCL_IB_GID_INDEX']=str(3)
+    envs['NCCL_SOCKET_IFNAME']=str('bond0')
+    envs['CUDA_DEVICE_MAX_CONNECTIONS']=str(1)
+    envs['TORCH_NCCL_AVOID_RECORD_STREAMS']=str(1)
+    envs['TOKENIZERS_PARALLELISM']=str('true')
+    envs['OMP_NUM_THREADS']=str(32)
+    envs['TRANSFORMERS_OFFLINE']=str(1)
     for k, v in envs.items():
         os.environ[k] = v
     args = parse_args()

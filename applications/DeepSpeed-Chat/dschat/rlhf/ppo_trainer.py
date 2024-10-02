@@ -95,7 +95,7 @@ class DeepSpeedPPOTrainer():
         with torch.no_grad():
             seq = self.actor_model.module.generate(
                 prompts,
-                attention_mask=mask,
+                attention_mask=None,
                 max_length=max_min_length,
                 pad_token_id=self.tokenizer.pad_token_id,
                 synced_gpus=self.z3_enabled,
