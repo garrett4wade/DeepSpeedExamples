@@ -29,7 +29,7 @@ def build_cmd(
     `per_device_training_batch_size` is the per-device miro-batch size of a single PPO minibatch, which is B // W // Np // Nt.
     `gradient_accumulation_steps` is Nt.
     """
-    critic_size = model_size if scale_both else 7
+    critic_size = 13 if scale_both else 7
     exp_name = "mlsys"
     trial_name = f"a{model_size}c{critic_size}b{bs}ct{ctx}p{prompt_len}nr{rollout_n_mbs}nt{train_n_mbs}"
 
@@ -76,7 +76,7 @@ def main(args):
     for size in args.model_size:
         n_gpus = MODEL_SIZE_TO_N_NODES_BAISC[size] * 8
         bs = N_NODES_TO_BATCH_SIZE[MODEL_SIZE_TO_N_NODES_BAISC[size]]
-        for nt, nr in [(4,16),(4,32)]:
+        for nt, nr in [(4,16),(8,16)]:
             cmd_logfile = build_cmd(
                 model_size=size,
                 bs=bs,
@@ -90,7 +90,7 @@ def main(args):
             if cmd_logfile is not None:
                 parse_success, oom = _parselog(
                     actor_size=size,
-                    critic_size=7 if not args.scale_both else size,
+                    critic_size=7 if not args.scale_both else 13,
                     bs=bs,
                     ctx=CTX,
                     prompt_len=PROMPT_LEN,
@@ -115,7 +115,7 @@ def main(args):
                 
                 parse_success, oom = _parselog(
                     actor_size=size,
-                    critic_size=7 if not args.scale_both else size,
+                    critic_size=7 if not args.scale_both else 13,
                     bs=bs,
                     ctx=CTX,
                     prompt_len=PROMPT_LEN,
